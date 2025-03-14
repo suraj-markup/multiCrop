@@ -1,0 +1,15 @@
+fastapi>=0.68.0
+python-multipart
+firebase-admin
+pillow
+python-dotenv
+uvicorn
+pydantic
+pytest
+httpx 
+fastapi
+uvicorn
+firebase-admin
+pillow
+python-multipart
+pymongo
