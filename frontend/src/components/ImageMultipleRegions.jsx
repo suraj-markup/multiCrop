@@ -1,136 +1,136 @@
 import React, { useState, useRef, useEffect } from "react";
 import axios from "axios";
-
+import DraggableBox from "./DraggableBox";
 // DraggableBox remains the same as before
-const DraggableBox = ({
-  id,
-  x,
-  y,
-  width,
-  height,
-  label,
-  onUpdate,
-  onDelete,
-}) => {
-  const boxRef = useRef(null);
-  const isResizingRef = useRef(false);
-  const isDraggingRef = useRef(false);
-  const dragStartRef = useRef({ x: 0, y: 0 });
-  const initialBoxRef = useRef({ x, y, width, height });
-  const [hideLabel, setHideLabel] = useState(false);
+// const DraggableBox = ({
+//   id,
+//   x,
+//   y,
+//   width,
+//   height,
+//   label,
+//   onUpdate,
+//   onDelete,
+// }) => {
+//   const boxRef = useRef(null);
+//   const isResizingRef = useRef(false);
+//   const isDraggingRef = useRef(false);
+//   const dragStartRef = useRef({ x: 0, y: 0 });
+//   const initialBoxRef = useRef({ x, y, width, height });
+//   const [hideLabel, setHideLabel] = useState(false);
 
-  const handleMouseDown = (e) => {
-    // If user clicked the resize handle, skip normal drag
-    if (e.target.classList.contains("resize-handle")) return;
-    isDraggingRef.current = true;
-    setHideLabel(true);
-    dragStartRef.current = { x: e.clientX, y: e.clientY };
-    initialBoxRef.current = { x, y, width, height };
-  };
+//   const handleMouseDown = (e) => {
+//     // If user clicked the resize handle, skip normal drag
+//     if (e.target.classList.contains("resize-handle")) return;
+//     isDraggingRef.current = true;
+//     setHideLabel(true);
+//     dragStartRef.current = { x: e.clientX, y: e.clientY };
+//     initialBoxRef.current = { x, y, width, height };
+//   };
 
-  const handleResizeMouseDown = (e) => {
-    e.stopPropagation();
-    isResizingRef.current = true;
-    setHideLabel(true);
-    dragStartRef.current = { x: e.clientX, y: e.clientY };
-    initialBoxRef.current = { x, y, width, height };
-  };
+//   const handleResizeMouseDown = (e) => {
+//     e.stopPropagation();
+//     isResizingRef.current = true;
+//     setHideLabel(true);
+//     dragStartRef.current = { x: e.clientX, y: e.clientY };
+//     initialBoxRef.current = { x, y, width, height };
+//   };
 
-  const handleMouseMove = (e) => {
-    if (!boxRef.current) return;
+//   const handleMouseMove = (e) => {
+//     if (!boxRef.current) return;
 
-    if (isDraggingRef.current) {
-      const deltaX = e.clientX - dragStartRef.current.x;
-      const deltaY = e.clientY - dragStartRef.current.y;
-      onUpdate(id, {
-        x: initialBoxRef.current.x + deltaX,
-        y: initialBoxRef.current.y + deltaY,
-      });
-    } else if (isResizingRef.current) {
-      const deltaX = e.clientX - dragStartRef.current.x;
-      const deltaY = e.clientY - dragStartRef.current.y;
-      onUpdate(id, {
-        width: initialBoxRef.current.width + deltaX,
-        height: initialBoxRef.current.height + deltaY,
-      });
-    }
-  };
+//     if (isDraggingRef.current) {
+//       const deltaX = e.clientX - dragStartRef.current.x;
+//       const deltaY = e.clientY - dragStartRef.current.y;
+//       onUpdate(id, {
+//         x: initialBoxRef.current.x + deltaX,
+//         y: initialBoxRef.current.y + deltaY,
+//       });
+//     } else if (isResizingRef.current) {
+//       const deltaX = e.clientX - dragStartRef.current.x;
+//       const deltaY = e.clientY - dragStartRef.current.y;
+//       onUpdate(id, {
+//         width: initialBoxRef.current.width + deltaX,
+//         height: initialBoxRef.current.height + deltaY,
+//       });
+//     }
+//   };
 
-  const handleMouseUp = () => {
-    isDraggingRef.current = false;
-    isResizingRef.current = false;
-    setHideLabel(false);
-  };
+//   const handleMouseUp = () => {
+//     isDraggingRef.current = false;
+//     isResizingRef.current = false;
+//     setHideLabel(false);
+//   };
 
-  // Right-click to confirm deletion
-  const handleContextMenu = (e) => {
-    e.preventDefault();
-    const confirmDelete = window.confirm("Delete this box?");
-    if (confirmDelete) {
-      onDelete(id);
-    }
-  };
+//   // Right-click to confirm deletion
+//   const handleContextMenu = (e) => {
+//     e.preventDefault();
+//     const confirmDelete = window.confirm("Delete this box?");
+//     if (confirmDelete) {
+//       onDelete(id);
+//     }
+//   };
 
-  useEffect(() => {
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  });
+//   useEffect(() => {
+//     document.addEventListener("mousemove", handleMouseMove);
+//     document.addEventListener("mouseup", handleMouseUp);
+//     return () => {
+//       document.removeEventListener("mousemove", handleMouseMove);
+//       document.removeEventListener("mouseup", handleMouseUp);
+//     };
+//   });
 
-  return (
-    <div
-      ref={boxRef}
-      onMouseDown={handleMouseDown}
-      onContextMenu={handleContextMenu}
-      style={{
-        position: "absolute",
-        left: x,
-        top: y,
-        width,
-        height,
-        border: "2px solid #FF5252",
-        boxSizing: "border-box",
-        cursor: "move",
-      }}
-    >
-      {/* Label at top-left (hidden while dragging/resizing) */}
-      {!hideLabel && (
-        <div
-          style={{
-            position: "absolute",
-            top: -20,
-            left: 0,
-            background: "#FF5252",
-            color: "white",
-            fontSize: "12px",
-            padding: "0px 4px",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {label || `Box #${id}`}
-        </div>
-      )}
+//   return (
+//     <div
+//       ref={boxRef}
+//       onMouseDown={handleMouseDown}
+//       onContextMenu={handleContextMenu}
+//       style={{
+//         position: "absolute",
+//         left: x,
+//         top: y,
+//         width,
+//         height,
+//         border: "2px solid #FF5252",
+//         boxSizing: "border-box",
+//         cursor: "move",
+//       }}
+//     >
+//       {/* Label at top-left (hidden while dragging/resizing) */}
+//       {!hideLabel && (
+//         <div
+//           style={{
+//             position: "absolute",
+//             top: -20,
+//             left: 0,
+//             background: "#FF5252",
+//             color: "white",
+//             fontSize: "12px",
+//             padding: "0px 4px",
+//             whiteSpace: "nowrap",
+//           }}
+//         >
+//           {label || `Box #${id}`}
+//         </div>
+//       )}
 
-      {/* Resize handle at bottom-right corner */}
-      <div
-        className="resize-handle"
-        onMouseDown={handleResizeMouseDown}
-        style={{
-          position: "absolute",
-          bottom: 0,
-          right: 0,
-          width: "15px",
-          height: "15px",
-          background: "#1976D2",
-          cursor: "se-resize",
-        }}
-      />
-    </div>
-  );
-};
+//       {/* Resize handle at bottom-right corner */}
+//       <div
+//         className="resize-handle"
+//         onMouseDown={handleResizeMouseDown}
+//         style={{
+//           position: "absolute",
+//           bottom: 0,
+//           right: 0,
+//           width: "15px",
+//           height: "15px",
+//           background: "#1976D2",
+//           cursor: "se-resize",
+//         }}
+//       />
+//     </div>
+//   );
+// };
 
 const ImageMultipleRegions = () => {
   // File + local preview
@@ -157,7 +157,7 @@ const ImageMultipleRegions = () => {
   useEffect(() => {
     const fetchQuestions = async () => {
       try {
-        const response = await axios.get("http://localhost:3000/api/upload", {
+        const response = await axios.get("https://side-project-t4jc.vercel.app/api/upload", {
           headers: {
             "Cache-Control": "no-cache",
             Pragma: "no-cache",
@@ -201,7 +201,7 @@ const ImageMultipleRegions = () => {
       pageItem.questions.forEach((question) => {
         // If there's a question_image
         if (question.isQuestionImage && question.question_image) {
-          newBoxes.push({
+          newBoxes.unshift({
             id: Date.now() + Math.random(),
             x: 50,
             y: 50,
@@ -214,7 +214,7 @@ const ImageMultipleRegions = () => {
         // If there are option images
         if (question.isOptionImage && question.option_images) {
           question.option_images.forEach((optImg) => {
-            newBoxes.push({
+            newBoxes.unshift({
               id: Date.now() + Math.random(),
               x: 100,
               y: 100,
@@ -379,7 +379,7 @@ const ImageMultipleRegions = () => {
         }
       );
 
-     
+
       const { crops } = response.data; // array of { index, name, filename, url }
 
       // 1) Update local bounding boxes if we want
@@ -424,7 +424,7 @@ const ImageMultipleRegions = () => {
       // Persist the updated question data
       try {
         const putRes = await axios.put(
-          `http://localhost:3000/api/upload/${updatedFiltered[0]._id}`,
+          `https://side-project-t4jc.vercel.app/api/upload/${updatedFiltered[0]._id}`,
           updatedFiltered[0]
         );
         if (putRes.data.message === "Question updated successfully") {
@@ -539,6 +539,8 @@ const ImageMultipleRegions = () => {
                   display: "block",
                   maxWidth: "100%",
                   border: "1px solid #ccc",
+                  userSelect: "none",
+                  pointerEvents: "none"
                 }}
               />
               {boxes.map((box) => (
@@ -596,7 +598,7 @@ const ImageMultipleRegions = () => {
 
                       {question.isOptionImage && question.option_images && (
                         <div className="flex flex-wrap justify-around gap-2">
-                         
+
                           {question.option_images.map((opt, index) => {
                             const src = previewMap[opt] || opt;
                             return (
