@@ -3,13 +3,9 @@ python-multipart
 firebase-admin
 pillow
 python-dotenv
-uvicorn
+uvicorn[standard]
 pydantic
 pytest
-httpx 
-fastapi
-uvicorn
-firebase-admin
-pillow
-python-multipart
+httpx
 pymongo
+bson

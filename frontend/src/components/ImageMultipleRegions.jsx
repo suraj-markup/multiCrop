@@ -157,6 +157,7 @@ const ImageMultipleRegions = () => {
   // Data from API
   const [fetchedData, setFetchedData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
+  const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
 
   // Bounding boxes
   const [boxes, setBoxes] = useState([]);
@@ -170,9 +171,10 @@ const ImageMultipleRegions = () => {
   const offscreenCanvasRef = useRef(document.createElement("canvas"));
   
   const fetchQuestions = useCallback(async () => {
+    if (!fileName) return;
+    
+    setIsLoadingQuestions(true);
     try {
-      console.log('Fetching questions for file:', fileName);
-      console.log(`https://teacher-backend-xi.vercel.app/api/questions?file_name=${fileName}`);
       const response = await axios.get(`https://teacher-backend-xi.vercel.app/api/questions?file_name=${fileName}`, {
         headers: {
           "Cache-Control": "no-cache",
@@ -180,23 +182,22 @@ const ImageMultipleRegions = () => {
           Expires: "0",
         },
       });
-      console.log('API Response:', response.data);
       
       if (response.data.questions && Array.isArray(response.data.questions)) {
         setFetchedData(response.data.questions);
       } else {
-        console.warn('Received unexpected data format:', response.data);
         setFetchedData([]);
       }
     } catch (error) {
-      console.error("Fetching questions failed:", error.response?.data || error.message);
+      alert("Error fetching questions:", error);
       setFetchedData([]);
+    } finally {
+      setIsLoadingQuestions(false);
     }
   }, [fileName]);
   // Fetch data on mount
   useEffect(() => {
     if (fileName) {
-      console.log(fileName);
       fetchQuestions();
     }
   }, [fileName, fetchQuestions]);
@@ -219,7 +220,6 @@ const ImageMultipleRegions = () => {
 
   // Filter the fetched data by fileName
   useEffect(() => {
-    console.log(fetchedData);
     if (!fileName || fetchedData.length === 0) return;
     const matching = fetchedData.filter((item) => item.file_name === fileName);
     setFilteredData(matching);
@@ -308,6 +308,7 @@ const ImageMultipleRegions = () => {
     setPreviewMap({});
     setNaturalSize({ width: 0, height: 0 });
     setFilteredData([]);
+    setIsLoadingQuestions(false);
 
     const fileInput = document.querySelector('input[type="file"]');
     if (fileInput) {
@@ -375,16 +376,14 @@ const ImageMultipleRegions = () => {
         const croppedFile = new File([blob], `${box.name}`, { type: 'image/jpeg' });
 
         // Upload to Supabase
-        const { data, error } = await supabase.storage
+        const { error } = await supabase.storage
           .from('images')
           .upload(`${box.name}`, croppedFile, {
             cacheControl: '3600',
             upsert: true
           });
-          console.log(data);
 
         if (error) {
-          console.error('Upload error for crop:', error);
           continue;
         }
 
@@ -401,7 +400,6 @@ const ImageMultipleRegions = () => {
         });
       }
 
-      console.log('Uploaded crops:', crops);
 
       // Update local bounding boxes with the new URLs
       const updatedBoxes = boxes.map((box) => {
@@ -463,9 +461,7 @@ const ImageMultipleRegions = () => {
               answer: question.answer
             };
 
-            console.log('Updating question with data:', updateData);
-
-            const response = await axios.put(
+            await axios.put(
               `https://teacher-backend-xi.vercel.app/api/questions/${question._id}`,
               updateData,
               {
@@ -474,9 +470,8 @@ const ImageMultipleRegions = () => {
                 }
               }
             );
-            console.log(`Updated question ${question._id}:`, response.data);
           } catch (error) {
-            console.error(`Failed to update question ${question._id}:`, error.response?.data || error.message);
+            alert(`Failed to update question ${question._id}:`, error.response?.data || error.message);
           }
         }
       }
@@ -485,7 +480,6 @@ const ImageMultipleRegions = () => {
       resetState();
 
     } catch (error) {
-      console.error("Error uploading:", error);
       alert(`Upload failed: ${error.message}`);
     }
   };
@@ -671,7 +665,27 @@ const ImageMultipleRegions = () => {
               </p>
             </div>
             
-            {filteredData && filteredData.length > 0 ? (
+            {isLoadingQuestions ? (
+              <div className="flex flex-col items-center justify-center py-16">
+                <div className="relative">
+                  {/* Spinning loader */}
+                  <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                  {/* Pulsing inner circle */}
+                  <div className="absolute inset-2 bg-blue-100 rounded-full animate-pulse"></div>
+                </div>
+                <div className="mt-6 text-center">
+                  <h3 className="text-xl font-semibold text-gray-700 mb-2">🔍 Fetching Questions</h3>
+                  <p className="text-gray-500 mb-4">
+                    Searching for questions related to <span className="font-medium text-blue-600">{fileName}</span>
+                  </p>
+                  <div className="flex items-center justify-center gap-1">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                  </div>
+                </div>
+              </div>
+            ) : filteredData && filteredData.length > 0 ? (
               <div className="space-y-6">
                 {filteredData.map((question) => {
                   const questionBoxes = boxes.filter(b => b.questionId === question._id && b.type === 'question');

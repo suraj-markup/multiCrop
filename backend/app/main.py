@@ -14,13 +14,25 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="MultiCrop Backend")
 
 # Configure CORS
+import os
+
 origins = [
     "http://localhost:3000",
     "http://localhost:8000",
     "http://localhost:5173",
     "http://localhost",
-    # Add your real frontend domain(s) here in production
+    "https://your-frontend-domain.vercel.app",  # Replace with your actual Vercel frontend URL
+    # Add more production domains as needed
 ]
+
+# Allow all origins in development, specific origins in production
+if os.getenv("VERCEL_ENV") == "development" or os.getenv("ENVIRONMENT") == "development":
+    origins = ["*"]
+elif os.getenv("VERCEL_ENV") == "production":
+    # In production, be more restrictive
+    frontend_url = os.getenv("FRONTEND_URL")
+    if frontend_url:
+        origins.append(frontend_url)
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,16 +57,34 @@ async def test_db():
     }
 
 @app.get("/questions")
-async def get_all_questions():
+async def get_all_questions(file_name: str = None):
     try:
         collection = get_collection("questions")
-        logger.info("Fetching all questions")
-        questions = list(collection.find({}, {'_id': 0}))
+        logger.info("Fetching questions")
+        
+        # If file_name is provided, filter by it
+        query = {}
+        if file_name:
+            query["file_name"] = file_name
+            logger.info(f"Filtering questions by file_name: {file_name}")
+        
+        questions = list(collection.find(query))
+        
+        # Convert ObjectId to string for JSON serialization
+        for question in questions:
+            if "_id" in question:
+                question["_id"] = str(question["_id"])
+        
         logger.info(f"Found {len(questions)} questions")
         return {"questions": questions}
     except Exception as e:
         logger.error(f"Error fetching questions: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# Add API prefix routes for compatibility
+@app.get("/api/questions")
+async def get_all_questions_api(file_name: str = None):
+    return await get_all_questions(file_name)
 
 @app.get("/questions/{question_id}")
 async def get_question_by_id(question_id: str):
@@ -109,6 +139,39 @@ async def create_many_questions(questions: List[Dict[Any, Any]] = Body(...)):
     except Exception as e:
         logger.error(f"Error creating questions in bulk: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/questions/{question_id}")
+async def update_question(question_id: str, question_data: Dict[Any, Any] = Body(...)):
+    try:
+        from bson import ObjectId
+        collection = get_collection("questions")
+        logger.info(f"Updating question with ID: {question_id}")
+        
+        # Convert string ID to ObjectId
+        object_id = ObjectId(question_id)
+        
+        # Remove _id from update data if present
+        if "_id" in question_data:
+            del question_data["_id"]
+        
+        result = collection.update_one(
+            {"_id": object_id},
+            {"$set": question_data}
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Question not found")
+        
+        logger.info(f"Question {question_id} updated successfully")
+        return {"message": "Question updated successfully", "modified_count": result.modified_count}
+    except Exception as e:
+        logger.error(f"Error updating question {question_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add API prefix routes for compatibility
+@app.put("/api/questions/{question_id}")
+async def update_question_api(question_id: str, question_data: Dict[Any, Any] = Body(...)):
+    return await update_question(question_id, question_data)
 
 # Include image endpoints with a prefix and tag.
 app.include_router(images.router, prefix="/images", tags=["images"])
