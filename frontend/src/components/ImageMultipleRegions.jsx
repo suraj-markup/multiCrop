@@ -1,5 +1,7 @@
-import React, { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import axios from "axios";
+import PropTypes from 'prop-types';
+import supabase from '../utils/subapabse';
 
 // DraggableBox remains the same as before
 const DraggableBox = ({
@@ -94,6 +96,7 @@ const DraggableBox = ({
         border: "2px solid #FF5252",
         boxSizing: "border-box",
         cursor: "move",
+        zIndex: 10,
       }}
     >
       {/* Label at top-left (hidden while dragging/resizing) */}
@@ -108,6 +111,7 @@ const DraggableBox = ({
             fontSize: "12px",
             padding: "0px 4px",
             whiteSpace: "nowrap",
+            borderRadius: "4px 4px 4px 0",
           }}
         >
           {label || `Box #${id}`}
@@ -132,6 +136,18 @@ const DraggableBox = ({
   );
 };
 
+// Add PropTypes validation
+DraggableBox.propTypes = {
+  id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+  x: PropTypes.number.isRequired,
+  y: PropTypes.number.isRequired,
+  width: PropTypes.number.isRequired,
+  height: PropTypes.number.isRequired,
+  label: PropTypes.string,
+  onUpdate: PropTypes.func.isRequired,
+  onDelete: PropTypes.func.isRequired,
+};
+
 const ImageMultipleRegions = () => {
   // File + local preview
   const [file, setFile] = useState(null);
@@ -152,32 +168,48 @@ const ImageMultipleRegions = () => {
 
   const imageRef = useRef(null);
   const offscreenCanvasRef = useRef(document.createElement("canvas"));
-
+  const fetchQuestions = async () => {
+    try {
+      console.log('Fetching questions for file:', fileName);
+      console.log(`https://teacher-backend-xi.vercel.app/api/questions?file_name=${fileName}`);
+      const response = await axios.get(`https://teacher-backend-xi.vercel.app/api/questions?file_name=${fileName}`, {
+        headers: {
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      });
+      console.log('API Response:', response.data);
+      
+      if (response.data.questions && Array.isArray(response.data.questions)) {
+        setFetchedData(response.data.questions);
+      } else {
+        console.warn('Received unexpected data format:', response.data);
+        setFetchedData([]);
+      }
+    } catch (error) {
+      console.error("Fetching questions failed:", error.response?.data || error.message);
+      setFetchedData([]);
+    }
+  };
   // Fetch data on mount
   useEffect(() => {
-    const fetchQuestions = async () => {
-      try {
-        const response = await axios.get("http://localhost:3000/api/upload", {
-          headers: {
-            "Cache-Control": "no-cache",
-            Pragma: "no-cache",
-            Expires: "0",
-          },
-        });
-        setFetchedData(response.data);
-      } catch (error) {
-        console.error("Fetching questions failed:", error);
-      }
-    };
-    fetchQuestions();
-  }, []);
+    if (fileName) {
+      console.log(fileName);
+      fetchQuestions();
+    }
+  }, [fileName]);
 
   // Handle file selection
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
     setFile(selectedFile);
-    setFileName(selectedFile.name);
+    
+    // Clean up the filename by removing any extra extensions
+    const originalName = selectedFile.name;
+    const cleanName = originalName.replace(/\.(jpg|jpeg|png|gif)\.(jpg|jpeg|png|gif)$/i, '.$1');
+    setFileName(cleanName);
 
     const reader = new FileReader();
     reader.onload = () => setImageSrc(reader.result);
@@ -186,50 +218,13 @@ const ImageMultipleRegions = () => {
 
   // Filter the fetched data by fileName
   useEffect(() => {
+    console.log(fetchedData);
     if (!fileName || fetchedData.length === 0) return;
     const matching = fetchedData.filter((item) => item.file_name === fileName);
     setFilteredData(matching);
   }, [fileName, fetchedData]);
 
-  // Generate bounding boxes for question images
-  const generateBoxesForQuestions = () => {
-    if (filteredData.length === 0) return;
 
-    const newBoxes = [];
-
-    filteredData.forEach((pageItem) => {
-      pageItem.questions.forEach((question) => {
-        // If there's a question_image
-        if (question.isQuestionImage && question.question_image) {
-          newBoxes.push({
-            id: Date.now() + Math.random(),
-            x: 50,
-            y: 50,
-            width: 100,
-            height: 100,
-            name: question.question_image,
-            preview: null,
-          });
-        }
-        // If there are option images
-        if (question.isOptionImage && question.option_images) {
-          question.option_images.forEach((optImg) => {
-            newBoxes.push({
-              id: Date.now() + Math.random(),
-              x: 100,
-              y: 100,
-              width: 100,
-              height: 100,
-              name: optImg,
-              preview: null,
-            });
-          });
-        }
-      });
-    });
-
-    setBoxes(newBoxes);
-  };
 
   const handleImageLoad = (e) => {
     const { naturalWidth, naturalHeight } = e.currentTarget;
@@ -239,31 +234,6 @@ const ImageMultipleRegions = () => {
   const updateBox = (id, newProps) => {
     setBoxes((prev) =>
       prev.map((box) => (box.id === id ? { ...box, ...newProps } : box))
-    );
-  };
-
-  const deleteBox = (id) => {
-    setBoxes((prev) => prev.filter((box) => box.id !== id));
-  };
-
-  const addNewBox = () => {
-    setBoxes((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        x: 50,
-        y: 50,
-        width: 100,
-        height: 100,
-        name: "",
-        preview: null,
-      },
-    ]);
-  };
-
-  const handleNameChange = (id, name) => {
-    setBoxes((prev) =>
-      prev.map((box) => (box.id === id ? { ...box, name } : box))
     );
   };
 
@@ -363,26 +333,74 @@ const ImageMultipleRegions = () => {
       index,
     }));
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("crops", JSON.stringify(boxCoordinates));
-
     try {
-      const response = await axios.post(
-        "http://localhost:8000/images/multicrop",
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-            "Cache-Control": "no-cache",
-          },
+      // Create a canvas to crop the images
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      img.src = imageSrc;
+
+      // Wait for the image to load
+      await new Promise((resolve) => {
+        img.onload = resolve;
+      });
+
+      // Upload each cropped image
+      const crops = [];
+      for (const box of boxCoordinates) {
+        // Set canvas size to match the crop dimensions
+        canvas.width = box.right - box.left;
+        canvas.height = box.bottom - box.top;
+
+        // Draw the cropped portion
+        ctx.drawImage(
+          img,
+          box.left,
+          box.top,
+          box.right - box.left,
+          box.bottom - box.top,
+          0,
+          0,
+          box.right - box.left,
+          box.bottom - box.top
+        );
+
+        // Convert canvas to blob
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg'));
+        
+        // Create a file from the blob
+        const croppedFile = new File([blob], `${box.name}`, { type: 'image/jpeg' });
+
+        // Upload to Supabase
+        const { data, error } = await supabase.storage
+          .from('images')
+          .upload(`${box.name}`, croppedFile, {
+            cacheControl: '3600',
+            upsert: true
+          });
+          console.log(data);
+
+        if (error) {
+          console.error('Upload error for crop:', error);
+          continue;
         }
-      );
 
-     
-      const { crops } = response.data; // array of { index, name, filename, url }
+        // Get the public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('images')
+          .getPublicUrl(`${box.name}`);
 
-      // 1) Update local bounding boxes if we want
+        crops.push({
+          index: box.index,
+          name: box.name,
+          filename: `${box.name}`,
+          url: publicUrl
+        });
+      }
+
+      console.log('Uploaded crops:', crops);
+
+      // Update local bounding boxes with the new URLs
       const updatedBoxes = boxes.map((box) => {
         const found = crops.find((c) => c.name === box.name);
         if (found) {
@@ -392,250 +410,573 @@ const ImageMultipleRegions = () => {
       });
       setBoxes(updatedBoxes);
 
-      // 2) Update question data
-      const updatedFiltered = filteredData.map((pageItem) => {
-        const newQuestions = pageItem.questions.map((q) => {
-          const updatedQ = { ...q };
+      // Update question data with the new image URLs
+      const updatedFiltered = filteredData.map((question) => {
+        const updatedQ = { ...question };
 
-          if (
-            updatedQ.isQuestionImage &&
-            updatedQ.question_image &&
-            crops.some((c) => c.name === updatedQ.question_image)
-          ) {
-            const foundCrop = crops.find(
-              (c) => c.name === updatedQ.question_image
-            );
-            updatedQ.question_image = foundCrop.url;
-          }
+        if (
+          updatedQ.isQuestionImage &&
+          updatedQ.question_image &&
+          crops.some((c) => c.name === updatedQ.question_image)
+        ) {
+          const foundCrop = crops.find(
+            (c) => c.name === updatedQ.question_image
+          );
+          updatedQ.question_image = foundCrop.url;
+        }
 
-          if (updatedQ.isOptionImage && updatedQ.option_images) {
-            updatedQ.option_images = updatedQ.option_images.map((opt) => {
-              const foundCrop = crops.find((c) => c.name === opt);
-              return foundCrop ? foundCrop.url : opt;
-            });
-          }
-          return updatedQ;
-        });
-        return { ...pageItem, questions: newQuestions };
+        if (updatedQ.isOptionImage && updatedQ.option_images) {
+          updatedQ.option_images = updatedQ.option_images.map((opt) => {
+            const foundCrop = crops.find((c) => c.name === opt);
+            return foundCrop ? foundCrop.url : opt;
+          });
+        }
+        return updatedQ;
       });
+      
 
       setFilteredData(updatedFiltered);
 
-      // Persist the updated question data
-      try {
-        const putRes = await axios.put(
-          `http://localhost:3000/api/upload/${updatedFiltered[0]._id}`,
-          updatedFiltered[0]
-        );
-        if (putRes.data.message === "Question updated successfully") {
-          alert("Uploaded and updated successfully!");
-          resetState();
-        } else {
-          alert("Update may have failed - please check the data");
+      // Update questions in the backend with new image URLs
+      for (const question of updatedFiltered) {
+        if (question.isQuestionImage || question.isOptionImage) {
+          try {
+            // Prepare the update data according to the backend's expected format
+            const updateData = {
+              question_number: question.question_number,
+              file_name: question.file_name,
+              question_text: question.question_text,
+              isQuestionImage: question.isQuestionImage,
+              question_image: question.isQuestionImage ? question.question_image : null,
+              isOptionImage: question.isOptionImage,
+              options: question.options || [],
+              option_images: question.isOptionImage ? question.option_images : [],
+              section_name: question.section_name,
+              question_type: question.question_type,
+              topic: question.topic,
+              exam_name: question.exam_name,
+              subject: question.subject_name,
+              chapter: question.chapter,
+              answer: question.answer
+            };
+
+            console.log('Updating question with data:', updateData);
+
+            const response = await axios.put(
+              `https://teacher-backend-xi.vercel.app/api/questions/${question._id}`,
+              updateData,
+              {
+                headers: {
+                  'Content-Type': 'application/json'
+                }
+              }
+            );
+            console.log(`Updated question ${question._id}:`, response.data);
+          } catch (error) {
+            console.error(`Failed to update question ${question._id}:`, error.response?.data || error.message);
+          }
         }
-      } catch (error) {
-        console.error("Error updating data:", error);
-        alert(`Update failed: ${error.response?.data?.error || error.message}`);
       }
+
+      alert("Upload successful!");
+      resetState();
+
     } catch (error) {
       console.error("Error uploading:", error);
-      alert(`Upload failed: ${error.response?.data?.detail || error.message}`);
+      alert(`Upload failed: ${error.message}`);
     }
   };
 
+  // Handler to toggle isQuestionImage/isOptionImage
+  const handleToggleImageType = (questionId, type, value) => {
+    setFilteredData((prev) =>
+      prev.map((q) =>
+        q._id === questionId ? { ...q, [type]: value } : q
+      )
+    );
+  };
+
+  // Handler to add a box for a question
+  const handleAddBoxToQuestion = (question, type, optionIndex = null) => {
+    let name = '';
+    if (type === 'question') {
+      if (question.question_image) {
+        name = question.question_image;
+      } else {
+        name = `${question.question_number}_${fileName}`;
+        setFilteredData((prevQ) => prevQ.map((q) => q._id === question._id ? { ...q, question_image: name } : q));
+      }
+    } else if (type === 'option' && optionIndex !== null) {
+      if (question.option_images && question.option_images[optionIndex]) {
+        name = question.option_images[optionIndex];
+      } else {
+        name = `${question.question_number}_option${optionIndex + 1}_${fileName}`;
+        setFilteredData((prevQ) => prevQ.map((q) => {
+          if (q._id === question._id) {
+            const newOpts = [...(q.option_images || [])];
+            newOpts[optionIndex] = name;
+            return { ...q, option_images: newOpts };
+          }
+          return q;
+        }));
+      }
+    }
+    // Add the box to the main boxes state with metadata
+    setBoxes((prev) => [
+      ...prev,
+      {
+        id: Date.now() + Math.random(),
+        x: 50,
+        y: 50,
+        width: 100,
+        height: 100,
+        name,
+        preview: null,
+        questionId: question._id,
+        optionIndex: type === 'option' ? optionIndex : null,
+        type, // 'question' or 'option'
+      },
+    ]);
+  };
+
   return (
-    <div className="p-4">
-      {/* Top bar: file input + generate boxes */}
-      <div className="flex items-center gap-4 mb-4">
-        <div>
-          <input type="file" accept="image/*" onChange={handleFileChange} />
-        </div>
-        <div>
-          <button
-            onClick={generateBoxesForQuestions}
-            className="px-3 py-2 bg-purple-600 text-white rounded"
-            disabled={!fileName || filteredData.length === 0}
-          >
-            Generate Boxes from Questions
-          </button>
-        </div>
-      </div>
+    <div className="min-h-screen bg-gray-100">
+      {/* Enhanced Navbar */}
+      <nav className="bg-white shadow-lg border-b border-gray-200 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            {/* Left side - Title */}
+            <div className="flex items-center">
+              <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                🖼️ Multi-Region Crop/Select
+              </h1>
+            </div>
 
-      {/* If we have an image selected, show the second row of buttons */}
-      {imageSrc && (
-        <div className="flex items-center gap-4 mb-4">
-          <button
-            onClick={addNewBox}
-            className="px-3 py-2 bg-green-600 text-white rounded"
-          >
-            Add New Box
-          </button>
-          <button
-            onClick={handleUpload}
-            className="px-3 py-2 bg-blue-600 text-white rounded"
-          >
-            Upload Boxes
-          </button>
-          <button
-            onClick={resetState}
-            className="px-3 py-2 bg-red-600 text-white rounded"
-          >
-            Clear &amp; Start New
-          </button>
-        </div>
-      )}
+            {/* Right side - Controls */}
+            <div className="flex items-center gap-4">
+              {/* File Input */}
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg cursor-pointer transition-all border border-gray-300">
+                  📁 Choose File
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    onChange={handleFileChange} 
+                    className="hidden"
+                  />
+                </label>
+                {fileName && (
+                  <span className="text-sm text-gray-600 max-w-xs truncate">
+                    {fileName}
+                  </span>
+                )}
+              </div>
 
-      {/* Main area: left column (box previews), center (main image), right (question preview) */}
-      {imageSrc && (
+              {/* Action Buttons - Only show when image is selected */}
+              {imageSrc && (
+                <>
+                  <div className="h-6 w-px bg-gray-300"></div>
+                  <button
+                    onClick={handleUpload}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm transition-all font-medium flex items-center gap-2"
+                    disabled={boxes.length === 0}
+                  >
+                    ⬆️ Upload Boxes
+                  </button>
+                  <button
+                    onClick={resetState}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-sm transition-all font-medium flex items-center gap-2"
+                  >
+                    🗑️ Clear & Start New
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </nav>
+
+             {/* Main Content */}
+      <div className="p-6">
+        {!imageSrc ? (
+          <div className="flex items-center justify-center h-96">
+            <div className="text-center">
+              <div className="text-8xl mb-4">📷</div>
+              <h2 className="text-2xl font-semibold text-gray-600 mb-2">No Image Selected</h2>
+              <p className="text-gray-500 mb-4">
+                Choose an image file from the navbar to start cropping and selecting regions
+              </p>
+              <div className="text-sm text-gray-400">
+                Supported formats: JPG, PNG, GIF
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Main area: left column (box previews), center (main image), right (question preview) */}
         <div
           className="flex"
-          style={{ minHeight: "600px", maxHeight: "80vh" }}
+          style={{ height: "calc(100vh - 140px)" }}
         >
-          {/* Left column: bounding box previews */}
-          <div className="w-1/8 border-r pr-2 overflow-y-auto">
-            <h1 className="text-2xl font-bold mb-4">Bounding Box Previews</h1>
-            {boxes.map((box) => (
-              <div
-                key={box.id}
-                className="mb-4 border p-2 rounded bg-white text-sm"
-              >
-                {box.preview ? (
-                  <img
-                    src={box.preview}
-                    alt={`Box preview ${box.id}`}
-                    style={{ maxWidth: "100%", marginBottom: "0.5rem" }}
-                  />
-                ) : (
-                  <div
-                    className="bg-gray-200 flex items-center justify-center text-gray-600"
-                    style={{ width: "100%", height: "80px" }}
-                  >
-                    No Preview
-                  </div>
-                )}
-                <input
-                  type="text"
-                  value={box.name}
-                  onChange={(e) => handleNameChange(box.id, e.target.value)}
-                  placeholder="Enter name"
-                  className="p-1 border rounded w-full"
-                />
-              </div>
-            ))}
-          </div>
-
           {/* Center: the main image with bounding boxes */}
-          <div className="flex-1 px-4 overflow-auto relative">
+          <div className="flex-1 px-4 flex flex-col relative">
             <h1 className="text-2xl font-bold mb-4">
               Selected image and bounding boxes
             </h1>
-            <div className="inline-block relative">
-              <img
-                ref={imageRef}
-                src={imageSrc}
-                alt="Selected"
-                onLoad={handleImageLoad}
-                style={{
-                  display: "block",
-                  maxWidth: "100%",
-                  border: "1px solid #ccc",
-                }}
-              />
-              {boxes.map((box) => (
-                <DraggableBox
-                  key={box.id}
-                  id={box.id}
-                  x={box.x}
-                  y={box.y}
-                  width={box.width}
-                  height={box.height}
-                  label={box.name}
-                  onUpdate={updateBox}
-                  onDelete={deleteBox}
+            <div className="flex-1 flex items-center justify-center overflow-hidden">
+              <div className="relative max-w-full max-h-full">
+                <img
+                  ref={imageRef}
+                  src={imageSrc}
+                  alt="Selected"
+                  onLoad={handleImageLoad}
+                  style={{
+                    display: "block",
+                    maxWidth: "100%",
+                    maxHeight: "calc(100vh - 150px)",
+                    width: "auto",
+                    height: "auto",
+                    border: "1px solid #ccc",
+                    objectFit: "contain",
+                  }}
                 />
-              ))}
+                {boxes.map((box) => (
+                  <DraggableBox
+                    key={box.id}
+                    id={box.id}
+                    x={box.x}
+                    y={box.y}
+                    width={box.width}
+                    height={box.height}
+                    label={box.name}
+                    onUpdate={updateBox}
+                    onDelete={(id) => setBoxes((prev) => prev.filter((b) => b.id === undefined ? true : b.id !== id))}
+                  />
+                ))}
+              </div>
             </div>
           </div>
 
           {/* Right column: question preview with updated images */}
-          <div className="w-1/3 border-l pl-2 overflow-y-auto">
-            <h1 className="text-2xl font-bold mb-4">
-              Questions and options preview
-            </h1>
-            {filteredData.length > 0 &&
-              filteredData.map((pageItem) =>
-                pageItem.questions.map((question) => (
-                  <div
-                    key={question._id}
-                    className="p-4 bg-white rounded-xl shadow-md space-y-4 mb-4"
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className="text-blue-600 font-semibold">
-                        Question {question.question_number}
-                      </span>
-                      <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm">
-                        {question.topic}
-                      </span>
-                    </div>
+          <div className="w-1/2 border-l border-gray-200 pl-6 overflow-y-auto bg-gray-50">
+            <div className="sticky top-0 bg-gray-50 pb-4 mb-6 border-b border-gray-200">
+              <h1 className="text-3xl font-bold text-gray-800 mb-2">
+                📋 Questions Preview
+              </h1>
+              <p className="text-gray-600 text-sm">
+                Configure image settings and manage bounding boxes for each question
+              </p>
+            </div>
+            
+            {filteredData && filteredData.length > 0 ? (
+              <div className="space-y-6">
+                {filteredData.map((question) => {
+                  const questionBoxes = boxes.filter(b => b.questionId === question._id && b.type === 'question');
+                  const optionBoxes = boxes.filter(b => b.questionId === question._id && b.type === 'option');
+                  
+                  return (
+                    <div
+                      key={question._id}
+                      className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow duration-200"
+                    >
+                      {/* Question Header */}
+                      <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4">
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-3">
+                            <div className="bg-white bg-opacity-20 rounded-full w-8 h-8 flex items-center justify-center font-bold">
+                              {question.question_number}
+                            </div>
+                            <h3 className="text-lg font-semibold">Question {question.question_number}</h3>
+                          </div>
+                          
+                          {/* Image Type Toggle Switches */}
+                          <div className="flex gap-3">
+                            <div className="flex items-center gap-2 bg-white bg-opacity-10 rounded-lg px-3 py-2">
+                              <span className="text-sm font-medium text-black">📷 Question Image:</span>
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={question.isQuestionImage}
+                                  onChange={e => handleToggleImageType(question._id, 'isQuestionImage', e.target.checked)}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+                              </label>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 bg-white bg-opacity-10 rounded-lg px-3 py-2">
+                              <span className="text-sm font-medium text-black">🖼️ Option Images:</span>
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={question.isOptionImage}
+                                  onChange={e => handleToggleImageType(question._id, 'isOptionImage', e.target.checked)}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
 
-                    <div className="space-y-4">
-                      <p className="text-gray-800 text-sm">
-                        {question.question_text}
-                      </p>
+                      {/* Question Content */}
+                      <div className="p-6">
+                        {/* Question Text */}
+                        <div className="mb-6">
+                          <h4 className="text-sm font-semibold text-gray-600 mb-2 uppercase tracking-wide">Question Text</h4>
+                          <p className="text-gray-800 text-base leading-relaxed bg-gray-50 p-4 rounded-lg border-l-4 border-blue-500">
+                            {question.question_text}
+                          </p>
+                        </div>
 
-                      {question.isQuestionImage && question.question_image && (
-                        <img
-                          src={
-                            previewMap[question.question_image] ||
-                            question.question_image
-                          }
-                          alt="Question"
-                          className="w-full max-w-md mx-auto"
-                        />
-                      )}
-
-                      {question.isOptionImage && question.option_images && (
-                        <div className="flex flex-wrap justify-around gap-2">
-                         
-                          {question.option_images.map((opt, index) => {
-                            const src = previewMap[opt] || opt;
-                            return (
-                              <div
-                                key={index}
-                                className="border rounded-lg p-2 flex flex-col items-center text-sm w-1/3 "
-                              >
-                                <img src={src} alt={`Option ${index + 1}`} />
-                                <p className="mt-1">
-                                  {index + 1}. {question.options[index]}
+                        {/* Question Image Section */}
+                        {question.isQuestionImage && (
+                          <div className="mb-6">
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="text-sm font-semibold text-blue-600 uppercase tracking-wide flex items-center gap-2">
+                                📷 Question Image
+                              </h4>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg shadow-sm transition-all font-medium text-sm flex items-center gap-2"
+                                  onClick={() => handleAddBoxToQuestion(question, 'question')}
+                                >
+                                  ➕ Add Bounding Box
+                                </button>
+                                {questionBoxes.map((box) => (
+                                  <button
+                                    key={box.id}
+                                    onClick={() => setBoxes((prev) => prev.filter((b) => b.id !== box.id))}
+                                    className="w-8 h-8 flex items-center justify-center rounded-full bg-red-100 hover:bg-red-500 text-red-600 hover:text-white text-sm font-bold border border-red-300 transition-all"
+                                    title="Delete bounding box"
+                                  >
+                                    🗑️
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            
+                            {question.question_image ? (
+                              <div className="bg-gray-50 rounded-lg p-4 border-2 border-dashed border-gray-300">
+                                <img
+                                  src={previewMap[question.question_image] || question.question_image}
+                                  alt="Question"
+                                  className="max-w-full max-h-64 mx-auto rounded-lg border border-gray-200 shadow-sm"
+                                />
+                                <p className="text-center text-sm text-gray-500 mt-2">
+                                  Image: {question.question_image}
                                 </p>
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {!question.isOptionImage &&
-                        question.options?.map((option, index) => (
-                          <div
-                            key={index}
-                            className="p-2 border border-gray-200 rounded-lg"
-                          >
-                            {option}
+                            ) : (
+                              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
+                                <p className="text-yellow-700 text-sm">
+                                  ⚠️ No question image set. Add a bounding box to generate one.
+                                </p>
+                              </div>
+                            )}
                           </div>
-                        ))}
-                    </div>
+                        )}
 
-                    <div className="flex justify-between items-center pt-2 text-xs text-gray-600 border-t border-gray-200">
-                      <span>{question["Exam Name"]}</span>
-                      <span>Year: {question.Year}</span>
-                      <span>Set: {question.set || "Not set"}</span>
+                        {/* Option Images Section */}
+                        {question.isOptionImage && (
+                          <div className="mb-6">
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="text-sm font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-2">
+                                🖼️ Option Images
+                              </h4>
+                              <button
+                                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg shadow-sm transition-all font-medium text-sm flex items-center gap-2"
+                                onClick={() => {
+                                  setFilteredData(prev => prev.map(q => {
+                                    if (q._id === question._id) {
+                                      return { ...q, option_images: [...(q.option_images || []), ""] };
+                                    }
+                                    return q;
+                                  }));
+                                }}
+                              >
+                                ➕ Add Option Image
+                              </button>
+                            </div>
+
+                            {(!question.option_images || question.option_images.length === 0) ? (
+                              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+                                <p className="text-blue-700 text-sm">
+                                  ℹ️ No option images yet. Click &quot;Add Option Image&quot; to start.
+                                </p>
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                {question.option_images.map((opt, idx) => {
+                                  const optionBoxesForThis = optionBoxes.filter(b => b.optionIndex === idx);
+                                  return (
+                                    <div key={idx} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                      <div className="flex items-center gap-3 mb-3">
+                                        <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold">
+                                          {idx + 1}
+                                        </span>
+                                        <input
+                                          type="text"
+                                          value={opt}
+                                          onChange={e => {
+                                            setFilteredData(prev => prev.map(q => {
+                                              if (q._id === question._id) {
+                                                const newOpts = [...(q.option_images || [])];
+                                                newOpts[idx] = e.target.value;
+                                                return { ...q, option_images: newOpts };
+                                              }
+                                              return q;
+                                            }));
+                                          }}
+                                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                          placeholder={`Option Image ${idx + 1} name`}
+                                        />
+                                        <button
+                                          className="px-3 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg shadow-sm transition-all font-medium text-sm"
+                                          onClick={() => handleAddBoxToQuestion(question, 'option', idx)}
+                                        >
+                                          📦 Add Box
+                                        </button>
+                                        {optionBoxesForThis.map((box) => (
+                                          <button
+                                            key={box.id}
+                                            onClick={() => setBoxes((prev) => prev.filter((b) => b.id !== box.id))}
+                                            className="w-8 h-8 flex items-center justify-center rounded-full bg-red-100 hover:bg-red-500 text-red-600 hover:text-white text-sm font-bold border border-red-300 transition-all"
+                                            title="Delete bounding box"
+                                          >
+                                            🗑️
+                                          </button>
+                                        ))}
+                                        <button
+                                          className="w-8 h-8 flex items-center justify-center rounded-full bg-red-100 hover:bg-red-500 text-red-600 hover:text-white text-sm font-bold border border-red-300 transition-all"
+                                          onClick={() => {
+                                            setFilteredData(prev => prev.map(q => {
+                                              if (q._id === question._id) {
+                                                const newOpts = [...(q.option_images || [])];
+                                                newOpts.splice(idx, 1);
+                                                setBoxes(prevBoxes => prevBoxes.filter(b => !(b.questionId === question._id && b.type === 'option' && b.optionIndex === idx)));
+                                                return { ...q, option_images: newOpts };
+                                              }
+                                              return q;
+                                            }));
+                                          }}
+                                          title="Remove option image"
+                                        >
+                                          ❌
+                                        </button>
+                                      </div>
+                                      
+                                      {opt && previewMap[opt] && (
+                                        <div className="mt-3">
+                                          <img
+                                            src={previewMap[opt]}
+                                            alt={`Option ${idx + 1}`}
+                                            className="max-w-full max-h-32 rounded-lg border border-gray-200 shadow-sm"
+                                          />
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* Option Images Preview Grid */}
+                            {question.option_images && question.option_images.length > 0 && (
+                              <div className="mt-4">
+                                <h5 className="text-sm font-medium text-gray-600 mb-2">Preview Grid</h5>
+                                <div className="grid grid-cols-2 gap-3">
+                                  {question.option_images.map((opt, index) => {
+
+                                    const src = previewMap[opt] || opt;
+                                    return (
+                                      <div
+                                        key={index}
+                                        className="border-2 border-gray-200 rounded-lg p-3 bg-white hover:border-blue-300 transition-colors"
+                                      >
+                                        {src ? (
+                                          <img src={src} alt={`Option ${index + 1}`} className="w-full h-auto object-cover rounded" />
+                                        ) : (
+                                          <div className="w-full h-24 bg-gray-100 rounded flex items-center justify-center text-gray-400 text-sm">
+                                            No preview
+                                          </div>
+                                        )}
+                                        <p className="mt-2 text-center text-sm font-medium text-gray-700">
+                                          {index + 1}. {question.options?.[index] || 'Option text'}
+                                        </p>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Text Options (when not using option images) */}
+                        {!question.isOptionImage && question.options && question.options.length > 0 && (
+                          <div className="mb-6">
+                            <h4 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide flex items-center gap-2">
+                              📝 Text Options
+                            </h4>
+                            <div className="space-y-2">
+                              {question.options.map((option, index) => (
+                                <div
+                                  key={index}
+                                  className="p-3 border border-gray-200 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors flex items-center gap-3"
+                                >
+                                  <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold">
+                                    {index + 1}
+                                  </span>
+                                  <span className="text-gray-800">{option}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Status Summary */}
+                        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                          <h5 className="text-sm font-semibold text-gray-600 mb-2">📊 Status Summary</h5>
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-3 h-3 rounded-full ${question.isQuestionImage ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+                              <span>Question Image: {question.isQuestionImage ? 'Enabled' : 'Disabled'}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className={`w-3 h-3 rounded-full ${question.isOptionImage ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+                              <span>Option Images: {question.isOptionImage ? 'Enabled' : 'Disabled'}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className={`w-3 h-3 rounded-full ${questionBoxes.length > 0 ? 'bg-blue-500' : 'bg-gray-300'}`}></span>
+                              <span>Question Boxes: {questionBoxes.length}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className={`w-3 h-3 rounded-full ${optionBoxes.length > 0 ? 'bg-purple-500' : 'bg-gray-300'}`}></span>
+                              <span>Option Boxes: {optionBoxes.length}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))
-              )}
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <div className="text-6xl mb-4">📄</div>
+                <h3 className="text-xl font-semibold text-gray-600 mb-2">No Questions Found</h3>
+                <p className="text-gray-500">
+                  No questions available for this image. Please select a different image or check your data.
+                </p>
+              </div>
+            )}
           </div>
         </div>
-      )}
+          </>
+        )}
+      </div>
     </div>
   );
 };
