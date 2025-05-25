@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import axios from "axios";
 import PropTypes from 'prop-types';
 import supabase from '../utils/subapabse';
 
-// DraggableBox remains the same as before
+// DraggableBox component
 const DraggableBox = ({
   id,
   x,
@@ -118,7 +118,7 @@ const DraggableBox = ({
         </div>
       )}
 
-      {/* Resize handle at bottom-right corner */}
+      {/* Resize handle at bottom-right corner */} 
       <div
         className="resize-handle"
         onMouseDown={handleResizeMouseDown}
@@ -168,7 +168,8 @@ const ImageMultipleRegions = () => {
 
   const imageRef = useRef(null);
   const offscreenCanvasRef = useRef(document.createElement("canvas"));
-  const fetchQuestions = async () => {
+  
+  const fetchQuestions = useCallback(async () => {
     try {
       console.log('Fetching questions for file:', fileName);
       console.log(`https://teacher-backend-xi.vercel.app/api/questions?file_name=${fileName}`);
@@ -191,14 +192,14 @@ const ImageMultipleRegions = () => {
       console.error("Fetching questions failed:", error.response?.data || error.message);
       setFetchedData([]);
     }
-  };
+  }, [fileName]);
   // Fetch data on mount
   useEffect(() => {
     if (fileName) {
       console.log(fileName);
       fetchQuestions();
     }
-  }, [fileName]);
+  }, [fileName, fetchQuestions]);
 
   // Handle file selection
   const handleFileChange = (e) => {
@@ -236,6 +237,8 @@ const ImageMultipleRegions = () => {
       prev.map((box) => (box.id === id ? { ...box, ...newProps } : box))
     );
   };
+
+
 
   // Generate local previews of each bounding box
   const generateLocalPreviews = () => {
@@ -683,9 +686,6 @@ const ImageMultipleRegions = () => {
                       <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4">
                         <div className="flex justify-between items-center">
                           <div className="flex items-center gap-3">
-                            <div className="bg-white bg-opacity-20 rounded-full w-8 h-8 flex items-center justify-center font-bold">
-                              {question.question_number}
-                            </div>
                             <h3 className="text-lg font-semibold">Question {question.question_number}</h3>
                           </div>
                           
