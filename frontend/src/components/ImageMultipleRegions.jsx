@@ -916,9 +916,9 @@ const ImageMultipleRegions = () => {
                                             No preview
                                           </div>
                                         )}
-                                        <p className="mt-2 text-center text-sm font-medium text-gray-700">
-                                          {index + 1}. {question.options?.[index] || 'Option text'}
-                                        </p>
+                                                                <p className="mt-2 text-center text-sm font-medium text-gray-700">
+                          {index + 1}. {question.options?.[index]?.text || question.options?.[index] || 'Option text'}
+                        </p>
                                       </div>
                                     );
                                   })}
@@ -943,7 +943,7 @@ const ImageMultipleRegions = () => {
                                   <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold">
                                     {index + 1}
                                   </span>
-                                  <span className="text-gray-800">{option}</span>
+                                  <span className="text-gray-800">{option?.text || option}</span>
                                 </div>
                               ))}
                             </div>
