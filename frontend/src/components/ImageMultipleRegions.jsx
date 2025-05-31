@@ -238,7 +238,24 @@ const ImageMultipleRegions = () => {
     setUploadSuccess(null);
     resetState();
     // navigate("/");
-  }, []);
+  }, [resetState]);
+
+  // NEW: Handler to continue working with the same image after successful upload
+  const handleContinueWithSameImage = useCallback(async () => {
+    setUploadSuccess(null);
+    setIsLoadingQuestions(true);
+    
+    // Clear only the boxes and preview data, keep the image
+    setBoxes([]);
+    setPreviewMap({});
+    setHasUnsavedChanges(false);
+    setModifiedQuestions(new Set());
+    
+    // Refetch the updated questions from the backend
+    if (fileName) {
+      await fetchQuestions();
+    }
+  }, [fileName, fetchQuestions]);
 
   const handleUpload = useCallback(async () => {
     if (!file) {
@@ -322,7 +339,7 @@ const ImageMultipleRegions = () => {
         const {
           data: { publicUrl },
         } = supabase.storage.from("images").getPublicUrl(`${box.name}`);
-
+        console.log("publicUrl",publicUrl);
         crops.push({
           index: box.index,
           name: box.name,
@@ -341,14 +358,40 @@ const ImageMultipleRegions = () => {
       });
       setBoxes(updatedBoxes);
 
-      // DON'T update question data with URLs - keep original filenames for database consistency
-      // The URLs are only stored in box.finalUrl for immediate display purposes
-      // Question data should maintain filename references for proper backend compatibility
+      // UPDATE: Now we DO update question data with URLs for persistence
+      // Create a mapping from filename to URL for easy lookup
+      const filenameToUrlMap = {};
+      crops.forEach(crop => {
+        filenameToUrlMap[crop.name] = crop.url;
+      });
+
+      // Update filteredData with the actual Supabase URLs
+      const updatedQuestionsData = filteredData.map(question => {
+        if (!modifiedQuestions.has(question._id)) {
+          return question; // Don't modify unmodified questions
+        }
+
+        const updatedQuestion = { ...question };
+        
+        // Update question_image with Supabase URL if it exists
+        if (updatedQuestion.question_image && filenameToUrlMap[updatedQuestion.question_image]) {
+          updatedQuestion.question_image = filenameToUrlMap[updatedQuestion.question_image];
+        }
+        
+        // Update option_images with Supabase URLs if they exist
+        if (updatedQuestion.option_images && Array.isArray(updatedQuestion.option_images)) {
+          updatedQuestion.option_images = updatedQuestion.option_images.map(optImg => {
+            return filenameToUrlMap[optImg] || optImg;
+          });
+        }
+        
+        return updatedQuestion;
+      });
       
-      setFilteredData(filteredData); // Keep original data unchanged
+      setFilteredData(updatedQuestionsData);
 
       // Update questions in the backend with new image URLs - ONLY MODIFIED QUESTIONS
-      const questionsToUpdate = filteredData.filter(q => modifiedQuestions.has(q._id));
+      const questionsToUpdate = updatedQuestionsData.filter(q => modifiedQuestions.has(q._id));
       
       if (questionsToUpdate.length === 0) {
         console.log("No questions were modified, skipping backend updates");
@@ -387,7 +430,7 @@ const ImageMultipleRegions = () => {
             chapter: question.chapter,
             answer: question.answer,
           };
-
+          console.log("updated Data",updateData);
           await axios.put(
             `https://teacher-backend-xi.vercel.app/api/questions/${question._id}`,
             updateData,
@@ -666,11 +709,26 @@ const ImageMultipleRegions = () => {
                     : `Only ${uploadSuccess.questionsUpdated} out of ${uploadSuccess.totalQuestions} questions were updated (optimization: only modified questions are updated).`
                   }
                 </div>
+                
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <div className="text-xs text-blue-700 font-medium mb-1">💡 What&apos;s next?</div>
+                  <div className="text-xs text-blue-600">
+                    • <strong>Continue with Same Image:</strong> Reload the updated questions to see your changes<br/>
+                    • <strong>Select More Images:</strong> Work on different images<br/>
+                    • <strong>Done:</strong> Close and start fresh
+                  </div>
+                </div>
               </div>
             </div>
             
             {/* Actions */}
             <div className="bg-gray-50 px-6 py-4 flex gap-3">
+              <button
+                onClick={handleContinueWithSameImage}
+                className="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                🔄 Continue with Same Image
+              </button>
               <button
                 onClick={handleSelectMoreImages}
                 className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
