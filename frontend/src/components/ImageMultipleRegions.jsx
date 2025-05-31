@@ -25,12 +25,16 @@ const ImageMultipleRegions = () => {
   const [previewMap, setPreviewMap] = useState({});
   // Track unsaved changes
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  // Track which specific questions have been modified
+  const [modifiedQuestions, setModifiedQuestions] = useState(new Set());
   // Upload progress tracking
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({
     current: 0,
     total: 0,
   });
+  // Success message state
+  const [uploadSuccess, setUploadSuccess] = useState(null);
 
   // Original full size of the image (for coordinate math)
   const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
@@ -139,44 +143,50 @@ const ImageMultipleRegions = () => {
 
       const newPreviewMap = {};
 
-      const updatedBoxes = boxes.map((box) => {
-        const left = box.x * scaleX;
-        const top = box.y * scaleY;
-        const width = box.width * scaleX;
-        const height = box.height * scaleY;
+      // Get current boxes from state to avoid stale closure
+      setBoxes((currentBoxes) => {
+        const updatedBoxes = currentBoxes.map((box) => {
+          const left = box.x * scaleX;
+          const top = box.y * scaleY;
+          const width = box.width * scaleX;
+          const height = box.height * scaleY;
 
-        offscreen.width = width;
-        offscreen.height = height;
-        ctx.clearRect(0, 0, width, height);
-        ctx.drawImage(
-          previewImage,
-          left,
-          top,
-          width,
-          height,
-          0,
-          0,
-          width,
-          height
-        );
+          offscreen.width = width;
+          offscreen.height = height;
+          ctx.clearRect(0, 0, width, height);
+          ctx.drawImage(
+            previewImage,
+            left,
+            top,
+            width,
+            height,
+            0,
+            0,
+            width,
+            height
+          );
 
-        const dataUrl = offscreen.toDataURL("image/png");
-        if (box.name) {
-          newPreviewMap[box.name] = dataUrl;
-        }
-        return { ...box, preview: dataUrl };
+          const dataUrl = offscreen.toDataURL("image/png");
+          if (box.name) {
+            newPreviewMap[box.name] = dataUrl;
+          }
+          return { ...box, preview: dataUrl };
+        });
+
+        // Update preview map after boxes are processed
+        setPreviewMap((old) => ({ ...old, ...newPreviewMap }));
+        
+        return updatedBoxes;
       });
-
-      setBoxes(updatedBoxes);
-      setPreviewMap((old) => ({ ...old, ...newPreviewMap }));
     };
-  }, [imageSrc, naturalSize.width, naturalSize.height, boxes]);
+  }, [imageSrc, naturalSize.width, naturalSize.height]);
 
+  // Trigger preview generation when boxes change
   useEffect(() => {
     if (boxes.length > 0) {
       generateLocalPreviews();
     }
-  }, [generateLocalPreviews]);
+  }, [boxes, generateLocalPreviews]);
 
   const resetState = useCallback(() => {
     setFile(null);
@@ -188,11 +198,46 @@ const ImageMultipleRegions = () => {
     setFilteredData([]);
     setIsLoadingQuestions(false);
     setHasUnsavedChanges(false);
+    // Clear modified questions tracking
+    setModifiedQuestions(new Set());
+    // Clear success message
+    setUploadSuccess(null);
 
-    const fileInput = document.querySelector('input[type="file"]');
+    const fileInput = document.querySelector('#file-input');
     if (fileInput) {
       fileInput.value = "";
     }
+  }, []);
+
+  // Handler for success modal actions
+  const handleSelectMoreImages = useCallback(() => {
+    // Clear current image but keep the success message briefly
+    setFile(null);
+    setFileName("");
+    setImageSrc(null);
+    setBoxes([]);
+    setPreviewMap({});
+    setNaturalSize({ width: 0, height: 0 });
+    setFilteredData([]);
+    setIsLoadingQuestions(false);
+    setHasUnsavedChanges(false);
+    setModifiedQuestions(new Set());
+    
+    // Small delay to show transition, then clear success and trigger file input
+    setTimeout(() => {
+      setUploadSuccess(null);
+      const fileInput = document.querySelector('#file-input');
+      if (fileInput) {
+        fileInput.value = "";
+        fileInput.click();
+      }
+    }, 300);
+  }, []);
+
+  const handleCloseSuccess = useCallback(() => {
+    setUploadSuccess(null);
+    resetState();
+    // navigate("/");
   }, []);
 
   const handleUpload = useCallback(async () => {
@@ -296,36 +341,27 @@ const ImageMultipleRegions = () => {
       });
       setBoxes(updatedBoxes);
 
-      // Update question data with the new image URLs
-      const updatedFiltered = filteredData.map((question) => {
-        const updatedQ = { ...question };
+      // DON'T update question data with URLs - keep original filenames for database consistency
+      // The URLs are only stored in box.finalUrl for immediate display purposes
+      // Question data should maintain filename references for proper backend compatibility
+      
+      setFilteredData(filteredData); // Keep original data unchanged
 
-        if (
-          updatedQ.isQuestionImage &&
-          updatedQ.question_image &&
-          crops.some((c) => c.name === updatedQ.question_image)
-        ) {
-          const foundCrop = crops.find(
-            (c) => c.name === updatedQ.question_image
-          );
-          updatedQ.question_image = foundCrop.url;
-        }
+      // Update questions in the backend with new image URLs - ONLY MODIFIED QUESTIONS
+      const questionsToUpdate = filteredData.filter(q => modifiedQuestions.has(q._id));
+      
+      if (questionsToUpdate.length === 0) {
+        console.log("No questions were modified, skipping backend updates");
+        setHasUnsavedChanges(false);
+        resetState();
+        return;
+      }
 
-        if (updatedQ.isOptionImage && updatedQ.option_images) {
-          updatedQ.option_images = updatedQ.option_images.map((opt) => {
-            const foundCrop = crops.find((c) => c.name === opt);
-            return foundCrop ? foundCrop.url : opt;
-          });
-        }
-        return updatedQ;
-      });
-
-      setFilteredData(updatedFiltered);
-
-      // Update questions in the backend with new image URLs
-      for (let i = 0; i < updatedFiltered.length; i++) {
-        const question = updatedFiltered[i];
-        setUploadProgress({ current: i + 1, total: updatedFiltered.length });
+      console.log(`Updating ${questionsToUpdate.length} modified questions out of ${filteredData.length} total questions`);
+      
+      for (let i = 0; i < questionsToUpdate.length; i++) {
+        const question = questionsToUpdate[i];
+        setUploadProgress({ current: i + 1, total: questionsToUpdate.length });
 
         try {
           // Prepare the update data according to the backend's expected format
@@ -338,7 +374,10 @@ const ImageMultipleRegions = () => {
               ? question.question_image
               : null,
             isOptionImage: question.isOptionImage,
-            options: question.options || [],
+            // Transform options from objects to strings for backend compatibility
+            options: question.options?.map(opt => 
+              typeof opt === 'object' ? opt.text : opt
+            ) || [],
             option_images: question.isOptionImage ? question.option_images : [],
             section_name: question.section_name,
             question_type: question.question_type,
@@ -366,15 +405,24 @@ const ImageMultipleRegions = () => {
         }
       }
 
+      // Clear the modified questions set after successful upload
+      setModifiedQuestions(new Set());
       setHasUnsavedChanges(false);
-      resetState();
+      
+      // Show success message instead of automatic reset
+      setUploadSuccess({
+        questionsUpdated: questionsToUpdate.length,
+        totalQuestions: filteredData.length,
+        cropsUploaded: crops.length
+      });
+      
     } catch (error) {
       alert(`Upload failed: ${error.message}`);
     } finally {
       setIsUploading(false);
       setUploadProgress({ current: 0, total: 0 });
     }
-  }, [file, filteredData, boxes, imageSrc, naturalSize, resetState]);
+  }, [file, filteredData, boxes, imageSrc, naturalSize, resetState, modifiedQuestions]);
 
   // Handler to toggle isQuestionImage/isOptionImage
   const handleToggleImageType = useCallback((questionId, type, value) => {
@@ -382,6 +430,8 @@ const ImageMultipleRegions = () => {
       prev.map((q) => (q._id === questionId ? { ...q, [type]: value } : q))
     );
     setHasUnsavedChanges(true);
+    // Track that this question has been modified
+    setModifiedQuestions((prev) => new Set([...prev, questionId]));
   }, []);
 
   // Handler to update question data
@@ -389,6 +439,8 @@ const ImageMultipleRegions = () => {
     setFilteredData((prev) =>
       prev.map((q) => (q._id === questionId ? { ...q, ...updates } : q))
     );
+    // Track that this question has been modified
+    setModifiedQuestions((prev) => new Set([...prev, questionId]));
   }, []);
 
   // Handler to add a box for a question - OPTIMIZED
@@ -448,7 +500,26 @@ const ImageMultipleRegions = () => {
     }
     setBoxes((prev) => [...prev, newBox]);
     setHasUnsavedChanges(true);
-  }, [fileName, isUploading]);
+    // Track that this question has been modified
+    setModifiedQuestions((prev) => new Set([...prev, question._id]));
+    
+    // Force re-render for existing question images by updating filtered data timestamp
+    if (type === "question" && question.question_image) {
+      // For existing question images, force a minimal state update to trigger re-render
+      setFilteredData((prev) => 
+        prev.map((q) => 
+          q._id === question._id 
+            ? { ...q, _lastBoxUpdate: Date.now() } 
+            : q
+        )
+      );
+    }
+    
+    // Trigger preview generation immediately after adding the box
+    setTimeout(() => {
+      generateLocalPreviews();
+    }, 50);
+  }, [fileName, isUploading, generateLocalPreviews]);
 
   // Handler to delete boxes - OPTIMIZED
   const handleDeleteBox = useCallback((boxId, questionId = null, type = null, optionIndex = null) => {
@@ -458,6 +529,11 @@ const ImageMultipleRegions = () => {
     if (boxId) {
       // Delete specific box by ID
       setBoxes((prev) => prev.filter((b) => b.id !== boxId));
+      // Find the question ID from the box being deleted
+      const boxToDelete = boxes.find(b => b.id === boxId);
+      if (boxToDelete) {
+        setModifiedQuestions((prev) => new Set([...prev, boxToDelete.questionId]));
+      }
     } else if (questionId && type && optionIndex !== null) {
       // Delete all boxes for a specific option
       setBoxes((prev) =>
@@ -470,9 +546,10 @@ const ImageMultipleRegions = () => {
             )
         )
       );
+      setModifiedQuestions((prev) => new Set([...prev, questionId]));
     }
     setHasUnsavedChanges(true);
-  }, [isUploading]);
+  }, [isUploading, boxes]);
 
   return (
     <>
@@ -528,6 +605,7 @@ const ImageMultipleRegions = () => {
                   fileName={fileName}
                   boxes={boxes}
                   previewMap={previewMap}
+                  modifiedQuestions={modifiedQuestions}
                   onToggleImageType={handleToggleImageType}
                   onAddBox={handleAddBoxToQuestion}
                   onDeleteBox={handleDeleteBox}
@@ -542,6 +620,73 @@ const ImageMultipleRegions = () => {
 
       {/* Progress Modal */}
       <ProgressModal isUploading={isUploading} uploadProgress={uploadProgress} />
+      
+      {/* Success Modal */}
+      {uploadSuccess && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6">
+              <div className="text-center">
+                <div className="text-4xl mb-2">🎉</div>
+                <h2 className="text-2xl font-bold">Upload Successful!</h2>
+                <p className="text-green-100 mt-1">Your questions have been updated</p>
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="p-6">
+              <div className="space-y-4">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-green-700 font-medium">Questions Updated:</span>
+                    <span className="bg-green-500 text-white px-2 py-1 rounded-full text-xs font-bold">
+                      {uploadSuccess.questionsUpdated}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm mt-2">
+                    <span className="text-green-700 font-medium">Images Uploaded:</span>
+                    <span className="bg-blue-500 text-white px-2 py-1 rounded-full text-xs font-bold">
+                      {uploadSuccess.cropsUploaded}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm mt-2">
+                    <span className="text-green-700 font-medium">Total Questions:</span>
+                    <span className="bg-gray-500 text-white px-2 py-1 rounded-full text-xs font-bold">
+                      {uploadSuccess.totalQuestions}
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="text-center text-gray-600 text-sm">
+                  {uploadSuccess.questionsUpdated === uploadSuccess.totalQuestions 
+                    ? "All questions were updated successfully!"
+                    : uploadSuccess.questionsUpdated === 0
+                    ? "No questions needed updating - all were already up to date!"
+                    : `Only ${uploadSuccess.questionsUpdated} out of ${uploadSuccess.totalQuestions} questions were updated (optimization: only modified questions are updated).`
+                  }
+                </div>
+              </div>
+            </div>
+            
+            {/* Actions */}
+            <div className="bg-gray-50 px-6 py-4 flex gap-3">
+              <button
+                onClick={handleSelectMoreImages}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                📁 Select More Images
+              </button>
+              <button
+                onClick={handleCloseSuccess}
+                className="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                ✅ Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

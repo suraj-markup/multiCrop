@@ -30,6 +30,7 @@ const QuestionCard = ({
   boxes, 
   previewMap, 
   fileName,
+  isModified,
   onToggleImageType,
   onAddBox,
   onDeleteBox,
@@ -75,12 +76,17 @@ const QuestionCard = ({
   return (
     <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow duration-200">
       {/* Question Header */}
-      <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4">
+      <div className={`bg-gradient-to-r ${isModified ? 'from-orange-500 to-orange-600' : 'from-blue-500 to-blue-600'} text-white p-4`}>
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
             <h3 className="text-lg font-semibold">
               Question {question.question_number}
             </h3>
+            {isModified && (
+              <span className="bg-white bg-opacity-20 text-white text-xs px-2 py-1 rounded-full font-medium">
+                ✏️ Modified
+              </span>
+            )}
             {isProcessing && (
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
             )}
@@ -194,25 +200,60 @@ const QuestionCard = ({
             {question.question_image ? (
               <div className="bg-gray-50 rounded-lg p-4 border-2 border-dashed border-gray-300">
                 <div className="text-center">
-                  <img
-                    src={
-                      previewMap[question.question_image] ||
-                      cleanImageUrl(question.question_image)
+                  {(() => {
+                    // Debug logging for preview lookup
+                    const previewFromMap = previewMap[question.question_image];
+                    const questionBox = questionBoxes.find(b => b.name === question.question_image);
+                    const previewFromBox = questionBox?.preview;
+                    // Check for uploaded URL from box.finalUrl
+                    const uploadedUrl = questionBox?.finalUrl;
+                    const finalPreview = previewFromMap || previewFromBox || uploadedUrl;
+                    
+                    // Check if question_image is already a Supabase URL
+                    const isSupabaseUrl = question.question_image?.includes('supabase.co/storage');
+                    const imageUrl = isSupabaseUrl ? question.question_image : cleanImageUrl(question.question_image);
+                    
+                    // Only render image if we have a valid data URL preview OR uploaded URL OR Supabase URL
+                    if ((finalPreview && finalPreview.startsWith('data:image/')) || uploadedUrl || isSupabaseUrl) {
+                      return (
+                        <img
+                          src={finalPreview || uploadedUrl || imageUrl}
+                          alt="Question"
+                          className="max-w-full max-h-64 mx-auto rounded-lg border border-gray-200 shadow-sm"
+                          onError={(e) => {
+                            console.error("Failed to load image:", e.target.src);
+                            console.error("Question image details:", {
+                              questionId: question._id,
+                              questionImage: question.question_image,
+                              isSupabaseUrl,
+                              hasQuestionBox: !!questionBox,
+                              finalPreview: !!finalPreview,
+                              uploadedUrl: !!uploadedUrl
+                            });
+                            e.target.style.display = 'none';
+                            e.target.nextElementSibling.style.display = 'block';
+                          }}
+                          onLoad={(e) => {
+                            e.target.nextElementSibling.style.display = 'none';
+                          }}
+                        />
+                      );
+                    } else {
+                      // Show loading placeholder while preview is being generated
+                      return (
+                        <div className="w-full h-32 bg-blue-50 border border-blue-200 rounded flex items-center justify-center text-blue-500 text-sm">
+                          {questionBoxes.length > 0 ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-2"></div>
+                              Generating preview...
+                            </>
+                          ) : (
+                            <>📷 Add a bounding box to generate preview</>
+                          )}
+                        </div>
+                      );
                     }
-                    alt="Question"
-                    className="max-w-full max-h-64 mx-auto rounded-lg border border-gray-200 shadow-sm"
-                    onError={(e) => {
-                      console.error("Failed to load question image:", question.question_image);
-                      console.error("Cleaned URL:", cleanImageUrl(question.question_image));
-                      // Hide broken image and show placeholder
-                      e.target.style.display = 'none';
-                      e.target.nextElementSibling.style.display = 'block';
-                    }}
-                    onLoad={(e) => {
-                      // Hide placeholder when image loads successfully
-                      e.target.nextElementSibling.style.display = 'none';
-                    }}
-                  />
+                  })()}
                   <div 
                     className="w-full h-32 bg-red-50 border border-red-200 rounded flex items-center justify-center text-red-500 text-sm"
                     style={{ display: 'none' }}
@@ -221,7 +262,7 @@ const QuestionCard = ({
                   </div>
                 </div>
                 <p className="text-center text-xs text-gray-400 mt-1">
-                  Image: {cleanImageUrl(question.question_image)}
+                  Image: {question.question_image}
                 </p>
               </div>
             ) : (
@@ -309,7 +350,7 @@ const QuestionCard = ({
             {!question.option_images || question.option_images.length === 0 ? (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
                 <p className="text-blue-700 text-sm">
-                  ℹ️ No option images yet. Click "Add Option Image" or "Create Image Slot" above to start.
+                  ℹ️ No option images yet. Click &quot;Add Option Image&quot; or &quot;Create Image Slot&quot; above to start.
                 </p>
               </div>
             ) : (
@@ -389,17 +430,35 @@ const QuestionCard = ({
                         </button>
                       </div>
 
-                      {opt && (previewMap[opt] || cleanImageUrl(opt)) && (
+                      {opt && (
                         <div className="mt-3">
-                          <img
-                            src={previewMap[opt] || cleanImageUrl(opt)}
-                            alt={`Option ${idx + 1}`}
-                            className="max-w-full max-h-32 rounded-lg border border-gray-200 shadow-sm"
-                            onError={() => {
-                              console.error("Failed to load option image:", opt);
-                              console.error("Cleaned URL:", cleanImageUrl(opt));
-                            }}
-                          />
+                          {(() => {
+                            // Check for preview from map first
+                            const previewFromMap = previewMap[opt];
+                            // Find option box with matching name
+                            const optionBox = optionBoxesForThis.find(b => b.name === opt);
+                            const previewFromBox = optionBox?.preview;
+                            const uploadedUrl = optionBox?.finalUrl;
+                            // Check if opt is already a Supabase URL
+                            const isSupabaseUrl = opt?.includes('supabase.co/storage');
+                            const imageUrl = isSupabaseUrl ? opt : cleanImageUrl(opt);
+                            
+                            const finalSrc = previewFromMap || previewFromBox || uploadedUrl || imageUrl;
+                            
+                            if (finalSrc) {
+                              return (
+                                <img
+                                  src={finalSrc}
+                                  alt={`Option ${idx + 1}`}
+                                  className="max-w-full max-h-32 rounded-lg border border-gray-200 shadow-sm"
+                                  onError={(e) => {
+                                    console.error("Failed to load option image:", e.target.src);
+                                  }}
+                                />
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                       )}
                     </div>
@@ -416,7 +475,15 @@ const QuestionCard = ({
                 </h5>
                 <div className="grid grid-cols-2 gap-3">
                   {question.option_images.map((opt, index) => {
-                    const src = previewMap[opt] || cleanImageUrl(opt);
+                    // Enhanced source lookup for option images
+                    const previewFromMap = previewMap[opt];
+                    const optionBox = optionBoxes.find(b => b.name === opt && b.optionIndex === index);
+                    const previewFromBox = optionBox?.preview;
+                    const uploadedUrl = optionBox?.finalUrl;
+                    const isSupabaseUrl = opt?.includes('supabase.co/storage');
+                    const imageUrl = isSupabaseUrl ? opt : cleanImageUrl(opt);
+                    const src = previewFromMap || previewFromBox || uploadedUrl || imageUrl;
+                    
                     return (
                       <div
                         key={index}
@@ -427,6 +494,9 @@ const QuestionCard = ({
                             src={src}
                             alt={`Option ${index + 1}`}
                             className="w-full h-auto object-cover rounded"
+                            onError={(e) => {
+                              console.error("Failed to load preview grid image:", e.target.src);
+                            }}
                           />
                         ) : (
                           <div className="w-full h-24 bg-gray-100 rounded flex items-center justify-center text-gray-400 text-sm">
@@ -499,6 +569,7 @@ QuestionCard.propTypes = {
   boxes: PropTypes.array.isRequired,
   previewMap: PropTypes.object.isRequired,
   fileName: PropTypes.string.isRequired,
+  isModified: PropTypes.bool.isRequired,
   onToggleImageType: PropTypes.func.isRequired,
   onAddBox: PropTypes.func.isRequired,
   onDeleteBox: PropTypes.func.isRequired,

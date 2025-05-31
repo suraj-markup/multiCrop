@@ -7,6 +7,7 @@ const QuestionsPreview = ({
   fileName, 
   boxes,
   previewMap,
+  modifiedQuestions,
   onToggleImageType,
   onAddBox,
   onDeleteBox,
@@ -62,6 +63,7 @@ const QuestionsPreview = ({
               boxes={boxes}
               previewMap={previewMap}
               fileName={fileName}
+              isModified={modifiedQuestions?.has?.(question._id) || false}
               onToggleImageType={onToggleImageType}
               onAddBox={onAddBox}
               onDeleteBox={onDeleteBox}
@@ -92,6 +94,7 @@ QuestionsPreview.propTypes = {
   fileName: PropTypes.string.isRequired,
   boxes: PropTypes.array.isRequired,
   previewMap: PropTypes.object.isRequired,
+  modifiedQuestions: PropTypes.instanceOf(Set),
   onToggleImageType: PropTypes.func.isRequired,
   onAddBox: PropTypes.func.isRequired,
   onDeleteBox: PropTypes.func.isRequired,
