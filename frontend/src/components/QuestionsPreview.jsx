@@ -58,12 +58,12 @@ const QuestionsPreview = ({
         <div className="space-y-6">
           {filteredData.map((question) => (
             <QuestionCard
-              key={question._id}
+              key={question.id}
               question={question}
               boxes={boxes}
               previewMap={previewMap}
               fileName={fileName}
-              isModified={modifiedQuestions?.has?.(question._id) || false}
+              isModified={modifiedQuestions?.has?.(question.id) || false}
               onToggleImageType={onToggleImageType}
               onAddBox={onAddBox}
               onDeleteBox={onDeleteBox}

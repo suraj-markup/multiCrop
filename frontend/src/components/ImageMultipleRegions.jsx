@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import axios from "axios";
 import supabase from "../utils/subapabse";
+import { getQuestionsUrl, getQuestionByIdUrl } from "../config/api";
 
 // Import all the new components
 import ProgressModal from "./ProgressModal";
@@ -41,25 +42,25 @@ const ImageMultipleRegions = () => {
 
   const imageRef = useRef(null);
   const offscreenCanvasRef = useRef(document.createElement("canvas"));
-
+  
   const fetchQuestions = useCallback(async () => {
     if (!fileName) return;
-
+    
     setIsLoadingQuestions(true);
     try {
       const response = await axios.get(
-        `https://teacher-backend-xi.vercel.app/api/questions?file_name=${fileName}`,
+        getQuestionsUrl(fileName),
         {
-          headers: {
-            "Cache-Control": "no-cache",
-            Pragma: "no-cache",
-            Expires: "0",
-          },
+        headers: {
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
         }
       );
-      console.log(response.data.questions);
-      if (response.data.questions && Array.isArray(response.data.questions)) {
-        setFetchedData(response.data.questions);
+      console.log(response.data);
+      if (response.data.data && response.data.data.questions && Array.isArray(response.data.data.questions)) {
+        setFetchedData(response.data.data.questions);
       } else {
         setFetchedData([]);
       }
@@ -91,7 +92,7 @@ const ImageMultipleRegions = () => {
     setHasUnsavedChanges(false);
     
     setFile(selectedFile);
-
+    
     // Clean up the filename by removing any extra extensions
     const originalName = selectedFile.name;
     const cleanName = originalName.replace(
@@ -146,35 +147,35 @@ const ImageMultipleRegions = () => {
       // Get current boxes from state to avoid stale closure
       setBoxes((currentBoxes) => {
         const updatedBoxes = currentBoxes.map((box) => {
-          const left = box.x * scaleX;
-          const top = box.y * scaleY;
-          const width = box.width * scaleX;
-          const height = box.height * scaleY;
+        const left = box.x * scaleX;
+        const top = box.y * scaleY;
+        const width = box.width * scaleX;
+        const height = box.height * scaleY;
 
-          offscreen.width = width;
-          offscreen.height = height;
-          ctx.clearRect(0, 0, width, height);
-          ctx.drawImage(
-            previewImage,
-            left,
-            top,
-            width,
-            height,
-            0,
-            0,
-            width,
-            height
-          );
+        offscreen.width = width;
+        offscreen.height = height;
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(
+          previewImage,
+          left,
+          top,
+          width,
+          height,
+          0,
+          0,
+          width,
+          height
+        );
 
-          const dataUrl = offscreen.toDataURL("image/png");
-          if (box.name) {
-            newPreviewMap[box.name] = dataUrl;
-          }
-          return { ...box, preview: dataUrl };
-        });
+        const dataUrl = offscreen.toDataURL("image/png");
+        if (box.name) {
+          newPreviewMap[box.name] = dataUrl;
+        }
+        return { ...box, preview: dataUrl };
+      });
 
         // Update preview map after boxes are processed
-        setPreviewMap((old) => ({ ...old, ...newPreviewMap }));
+      setPreviewMap((old) => ({ ...old, ...newPreviewMap }));
         
         return updatedBoxes;
       });
@@ -317,7 +318,7 @@ const ImageMultipleRegions = () => {
         const blob = await new Promise((resolve) =>
           canvas.toBlob(resolve, "image/jpeg")
         );
-
+        
         // Create a file from the blob
         const croppedFile = new File([blob], `${box.name}`, {
           type: "image/jpeg",
@@ -367,7 +368,7 @@ const ImageMultipleRegions = () => {
 
       // Update filteredData with the actual Supabase URLs
       const updatedQuestionsData = filteredData.map(question => {
-        if (!modifiedQuestions.has(question._id)) {
+        if (!modifiedQuestions.has(question.id)) {
           return question; // Don't modify unmodified questions
         }
 
@@ -391,7 +392,7 @@ const ImageMultipleRegions = () => {
       setFilteredData(updatedQuestionsData);
 
       // Update questions in the backend with new image URLs - ONLY MODIFIED QUESTIONS
-      const questionsToUpdate = updatedQuestionsData.filter(q => modifiedQuestions.has(q._id));
+      const questionsToUpdate = updatedQuestionsData.filter(q => modifiedQuestions.has(q.id));
       
       if (questionsToUpdate.length === 0) {
         console.log("No questions were modified, skipping backend updates");
@@ -406,43 +407,43 @@ const ImageMultipleRegions = () => {
         const question = questionsToUpdate[i];
         setUploadProgress({ current: i + 1, total: questionsToUpdate.length });
 
-        try {
-          // Prepare the update data according to the backend's expected format
-          const updateData = {
-            question_number: question.question_number,
-            file_name: question.file_name,
-            question_text: question.question_text,
-            isQuestionImage: question.isQuestionImage,
+          try {
+            // Prepare the update data according to the backend's expected format
+            const updateData = {
+              question_number: question.question_number,
+              file_name: question.file_name,
+              question_text: question.question_text,
+              isQuestionImage: question.isQuestionImage,
             question_image: question.isQuestionImage
               ? question.question_image
               : null,
-            isOptionImage: question.isOptionImage,
+              isOptionImage: question.isOptionImage,
             // Transform options from objects to strings for backend compatibility
             options: question.options?.map(opt => 
               typeof opt === 'object' ? opt.text : opt
             ) || [],
-            option_images: question.isOptionImage ? question.option_images : [],
-            section_name: question.section_name,
-            question_type: question.question_type,
-            topic: question.topic,
-            exam_name: question.exam_name,
-            subject: question.subject_name,
-            chapter: question.chapter,
+              option_images: question.isOptionImage ? question.option_images : [],
+              section_name: question.section_name,
+              question_type: question.question_type,
+              topic: question.topic,
+              exam_name: question.exam_name,
+              subject: question.subject,
+              chapter: question.chapter,
             answer: question.answer,
-          };
+            };
           console.log("updated Data",updateData);
-          await axios.put(
-            `https://teacher-backend-xi.vercel.app/api/questions/${question._id}`,
-            updateData,
-            {
-              headers: {
+            await axios.put(
+              getQuestionByIdUrl(question.id),
+              updateData,
+              {
+                headers: {
                 "Content-Type": "application/json",
               },
-            }
-          );
-        } catch (error) {
+              }
+            );
+          } catch (error) {
           alert(
-            `Failed to update question ${question._id}:`,
+            `Failed to update question ${question.id}:`,
             error.response?.data || error.message
           );
         }
@@ -458,7 +459,7 @@ const ImageMultipleRegions = () => {
         totalQuestions: filteredData.length,
         cropsUploaded: crops.length
       });
-      
+
     } catch (error) {
       alert(`Upload failed: ${error.message}`);
     } finally {
@@ -470,7 +471,7 @@ const ImageMultipleRegions = () => {
   // Handler to toggle isQuestionImage/isOptionImage
   const handleToggleImageType = useCallback((questionId, type, value) => {
     setFilteredData((prev) =>
-      prev.map((q) => (q._id === questionId ? { ...q, [type]: value } : q))
+      prev.map((q) => (q.id === questionId ? { ...q, [type]: value } : q))
     );
     setHasUnsavedChanges(true);
     // Track that this question has been modified
@@ -480,7 +481,7 @@ const ImageMultipleRegions = () => {
   // Handler to update question data
   const handleUpdateQuestion = useCallback((questionId, updates) => {
     setFilteredData((prev) =>
-      prev.map((q) => (q._id === questionId ? { ...q, ...updates } : q))
+      prev.map((q) => (q.id === questionId ? { ...q, ...updates } : q))
     );
     // Track that this question has been modified
     setModifiedQuestions((prev) => new Set([...prev, questionId]));
@@ -501,7 +502,7 @@ const ImageMultipleRegions = () => {
         name = `${question.question_number}_${fileName}`;
         updatedFilteredData = (prevQ) =>
           prevQ.map((q) =>
-            q._id === question._id ? { ...q, question_image: name } : q
+            q.id === question.id ? { ...q, question_image: name } : q
           );
       }
     } else if (type === "option" && optionIndex !== null) {
@@ -513,28 +514,28 @@ const ImageMultipleRegions = () => {
         }_${fileName}`;
         updatedFilteredData = (prevQ) =>
           prevQ.map((q) => {
-            if (q._id === question._id) {
-              const newOpts = [...(q.option_images || [])];
-              newOpts[optionIndex] = name;
-              return { ...q, option_images: newOpts };
-            }
-            return q;
+          if (q.id === question.id) {
+            const newOpts = [...(q.option_images || [])];
+            newOpts[optionIndex] = name;
+            return { ...q, option_images: newOpts };
+          }
+          return q;
           });
       }
     }
 
     // Create new box object
     const newBox = {
-      id: Date.now() + Math.random(),
-      x: 50,
-      y: 50,
-      width: 100,
-      height: 100,
-      name,
-      preview: null,
-      questionId: question._id,
+        id: Date.now() + Math.random(),
+        x: 50,
+        y: 50,
+        width: 100,
+        height: 100,
+        name,
+        preview: null,
+        questionId: question.id,
       optionIndex: type === "option" ? optionIndex : null,
-      type, // 'question' or 'option'
+        type, // 'question' or 'option'
     };
 
     // Batch all state updates together
@@ -544,14 +545,14 @@ const ImageMultipleRegions = () => {
     setBoxes((prev) => [...prev, newBox]);
     setHasUnsavedChanges(true);
     // Track that this question has been modified
-    setModifiedQuestions((prev) => new Set([...prev, question._id]));
+    setModifiedQuestions((prev) => new Set([...prev, question.id]));
     
     // Force re-render for existing question images by updating filtered data timestamp
     if (type === "question" && question.question_image) {
       // For existing question images, force a minimal state update to trigger re-render
       setFilteredData((prev) => 
         prev.map((q) => 
-          q._id === question._id 
+          q.id === question.id 
             ? { ...q, _lastBoxUpdate: Date.now() } 
             : q
         )
@@ -596,7 +597,7 @@ const ImageMultipleRegions = () => {
 
   return (
     <>
-      <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-100">
         {/* Navbar */}
         <Navbar
           fileName={fileName}
@@ -609,29 +610,29 @@ const ImageMultipleRegions = () => {
           file={file}
         />
 
-        {/* Main Content */}
-        <div className="p-6">
-          {!imageSrc ? (
-            <div className="flex items-center justify-center h-96">
-              <div className="text-center">
-                <div className="text-8xl mb-4">📷</div>
+             {/* Main Content */}
+      <div className="p-6">
+        {!imageSrc ? (
+          <div className="flex items-center justify-center h-96">
+            <div className="text-center">
+              <div className="text-8xl mb-4">📷</div>
                 <h2 className="text-2xl font-semibold text-gray-600 mb-2">
                   No Image Selected
                 </h2>
-                <p className="text-gray-500 mb-4">
+              <p className="text-gray-500 mb-4">
                   Choose an image file from the navbar to start cropping and
                   selecting regions
-                </p>
-                <div className="text-sm text-gray-400">
-                  Supported formats: JPG, PNG, GIF
-                </div>
+              </p>
+              <div className="text-sm text-gray-400">
+                Supported formats: JPG, PNG, GIF
               </div>
             </div>
-          ) : (
-            <>
+          </div>
+        ) : (
+          <>
               {/* Main area: left column (image), right (question preview) */}
               <div className="flex" style={{ height: "calc(100vh - 140px)" }}>
-                {/* Center: the main image with bounding boxes */}
+          {/* Center: the main image with bounding boxes */}
                 <ImageCanvas
                   ref={imageRef}
                   imageSrc={imageSrc}
@@ -658,8 +659,8 @@ const ImageMultipleRegions = () => {
               </div>
             </>
           )}
-        </div>
-      </div>
+            </div>
+          </div>
 
       {/* Progress Modal */}
       <ProgressModal isUploading={isUploading} uploadProgress={uploadProgress} />
@@ -674,8 +675,8 @@ const ImageMultipleRegions = () => {
                 <div className="text-4xl mb-2">🎉</div>
                 <h2 className="text-2xl font-bold">Upload Successful!</h2>
                 <p className="text-green-100 mt-1">Your questions have been updated</p>
-              </div>
-            </div>
+                </div>
+                  </div>
             
             {/* Content */}
             <div className="p-6">
@@ -686,21 +687,21 @@ const ImageMultipleRegions = () => {
                     <span className="bg-green-500 text-white px-2 py-1 rounded-full text-xs font-bold">
                       {uploadSuccess.questionsUpdated}
                     </span>
-                  </div>
+                          </div>
                   <div className="flex items-center justify-between text-sm mt-2">
                     <span className="text-green-700 font-medium">Images Uploaded:</span>
                     <span className="bg-blue-500 text-white px-2 py-1 rounded-full text-xs font-bold">
                       {uploadSuccess.cropsUploaded}
                     </span>
-                  </div>
+                            </div>
                   <div className="flex items-center justify-between text-sm mt-2">
                     <span className="text-green-700 font-medium">Total Questions:</span>
                     <span className="bg-gray-500 text-white px-2 py-1 rounded-full text-xs font-bold">
                       {uploadSuccess.totalQuestions}
                     </span>
-                  </div>
-                </div>
-                
+                        </div>
+                      </div>
+
                 <div className="text-center text-gray-600 text-sm">
                   {uploadSuccess.questionsUpdated === uploadSuccess.totalQuestions 
                     ? "All questions were updated successfully!"
@@ -708,45 +709,45 @@ const ImageMultipleRegions = () => {
                     ? "No questions needed updating - all were already up to date!"
                     : `Only ${uploadSuccess.questionsUpdated} out of ${uploadSuccess.totalQuestions} questions were updated (optimization: only modified questions are updated).`
                   }
-                </div>
-                
+                        </div>
+
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <div className="text-xs text-blue-700 font-medium mb-1">💡 What&apos;s next?</div>
                   <div className="text-xs text-blue-600">
                     • <strong>Continue with Same Image:</strong> Reload the updated questions to see your changes<br/>
                     • <strong>Select More Images:</strong> Work on different images<br/>
                     • <strong>Done:</strong> Close and start fresh
-                  </div>
-                </div>
-              </div>
-            </div>
+                              </div>
+                            </div>
+                              </div>
+                              </div>
             
             {/* Actions */}
             <div className="bg-gray-50 px-6 py-4 flex gap-3">
-              <button
+                              <button
                 onClick={handleContinueWithSameImage}
                 className="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 🔄 Continue with Same Image
-              </button>
-              <button
+                              </button>
+                                        <button
                 onClick={handleSelectMoreImages}
                 className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
+                                        >
                 📁 Select More Images
-              </button>
-              <button
+                                        </button>
+                                          <button
                 onClick={handleCloseSuccess}
                 className="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 ✅ Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                                        </button>
+                                      </div>
+                                        </div>
+                              </div>
+                            )}
     </>
   );
 };
 
-export default ImageMultipleRegions; 
+export default ImageMultipleRegions;

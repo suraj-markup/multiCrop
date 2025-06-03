@@ -40,11 +40,11 @@ const QuestionCard = ({
   const [isProcessing, setIsProcessing] = useState(false);
 
   const questionBoxes = boxes.filter(
-    (b) => b.questionId === question._id && b.type === "question"
+    (b) => b.questionId === question.id && b.type === "question"
   );
   
   const optionBoxes = boxes.filter(
-    (b) => b.questionId === question._id && b.type === "option"
+    (b) => b.questionId === question.id && b.type === "option"
   );
 
   // Enhanced handler for adding boxes with loading state
@@ -104,7 +104,7 @@ const QuestionCard = ({
                   checked={question.isQuestionImage}
                   onChange={(e) =>
                     onToggleImageType(
-                      question._id,
+                      question.id,
                       "isQuestionImage",
                       e.target.checked
                     )
@@ -125,7 +125,7 @@ const QuestionCard = ({
                   checked={question.isOptionImage}
                   onChange={(e) =>
                     onToggleImageType(
-                      question._id,
+                      question.id,
                       "isOptionImage",
                       e.target.checked
                     )
@@ -223,7 +223,7 @@ const QuestionCard = ({
                           onError={(e) => {
                             console.error("Failed to load image:", e.target.src);
                             console.error("Question image details:", {
-                              questionId: question._id,
+                              questionId: question.id,
                               questionImage: question.question_image,
                               isSupabaseUrl,
                               hasQuestionBox: !!questionBox,
@@ -287,7 +287,7 @@ const QuestionCard = ({
                 onClick={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
-                  onUpdateQuestion(question._id, {
+                  onUpdateQuestion(question.id, {
                     option_images: [
                       ...(question.option_images || []),
                       "",
@@ -335,7 +335,7 @@ const QuestionCard = ({
                             newOpts.push("");
                           }
                           newOpts[index] = `${question.question_number}_option${index + 1}_${fileName}`;
-                          onUpdateQuestion(question._id, { option_images: newOpts });
+                          onUpdateQuestion(question.id, { option_images: newOpts });
                           setHasUnsavedChanges(true);
                         }}
                       >
@@ -374,7 +374,7 @@ const QuestionCard = ({
                           onChange={(e) => {
                             const newOpts = [...(question.option_images || [])];
                             newOpts[idx] = e.target.value;
-                            onUpdateQuestion(question._id, { option_images: newOpts });
+                            onUpdateQuestion(question.id, { option_images: newOpts });
                             setHasUnsavedChanges(true);
                           }}
                           className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
@@ -420,8 +420,8 @@ const QuestionCard = ({
                             e.preventDefault();
                             const newOpts = [...(question.option_images || [])];
                             newOpts.splice(idx, 1);
-                            handleDeleteBoxWithLoading(null, question._id, "option", idx);
-                            onUpdateQuestion(question._id, { option_images: newOpts });
+                            handleDeleteBoxWithLoading(null, question.id, "option", idx);
+                            onUpdateQuestion(question.id, { option_images: newOpts });
                             setHasUnsavedChanges(true);
                           }}
                           title="Remove option image"
@@ -557,7 +557,7 @@ const QuestionCard = ({
 
 QuestionCard.propTypes = {
   question: PropTypes.shape({
-    _id: PropTypes.string.isRequired,
+    id: PropTypes.string.isRequired,
     question_number: PropTypes.number.isRequired,
     question_text: PropTypes.string.isRequired,
     isQuestionImage: PropTypes.bool.isRequired,

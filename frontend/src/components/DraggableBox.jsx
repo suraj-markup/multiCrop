@@ -242,12 +242,12 @@ const DraggableBox = ({
       {/* Label at top-left (hidden while dragging/resizing) */}
       {!hideLabel && (
         <div
-          style={{
-            position: "absolute",
+            style={{
+              position: "absolute",
             top: -28,
             left: 0,
             background: "#1976D2",
-            color: "white",
+              color: "white",
             fontSize: "12px",
             padding: "2px 8px",
             whiteSpace: "nowrap",
@@ -266,7 +266,7 @@ const DraggableBox = ({
             position: "absolute",
             top: 4,
             right: 4,
-            display: "flex",
+              display: "flex",
             gap: "4px",
             pointerEvents: "none", // Prevent interfering with drag
           }}
