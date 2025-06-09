@@ -15,8 +15,8 @@ const QuestionsPreview = ({
   setHasUnsavedChanges
 }) => {
   return (
-    <div className="w-1/2 border-l border-gray-200 pl-6 overflow-y-auto bg-gray-50">
-      <div className="sticky top-0 bg-gray-50 pb-4 mb-6 border-b border-gray-200">
+    <div className="relative w-1/2 border-l border-gray-200 pl-6 overflow-y-auto bg-gray-50">
+      <div className="sticky top-0 bg-gray-50 pb-4 mb-6 border-b border-gray-200 z-[100]">
         <h1 className="text-3xl font-bold text-gray-800 mb-2">
           📋 Questions Preview
         </h1>

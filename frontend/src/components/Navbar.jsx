@@ -12,8 +12,8 @@ const Navbar = ({
 }) => {
   return (
     <nav className="bg-white shadow-lg border-b border-gray-200 sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
+      <div className="max-full mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16 items-center">
           {/* Left side - Title */}
           <div className="flex items-center">
             <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
@@ -26,18 +26,19 @@ const Navbar = ({
             {/* File Input */}
             <div className="flex items-center gap-2">
               <label className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg cursor-pointer transition-all border border-gray-300">
-                📁 Choose File
+                📁 Choose Files
                 <input 
                   id="file-input"
                   type="file" 
                   accept="image/*" 
                   onChange={onFileChange} 
                   className="hidden"
+                  multiple
                 />
               </label>
               {fileName && (
-                <span className="text-sm text-gray-600 max-w-xs truncate">
-                  {fileName}
+                <span className="text-sm text-gray-600 truncate">
+                  {fileName} ({file ? `1 of ${file.length}` : ''})
                 </span>
               )}
             </div>
