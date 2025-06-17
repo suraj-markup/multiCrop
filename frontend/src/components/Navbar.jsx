@@ -47,6 +47,7 @@ const Navbar = ({
             {imageSrc && (
               <>
                 <div className="h-6 w-px bg-gray-300"></div>
+                
                 <button
                   onClick={onUpload}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm transition-all font-medium flex items-center gap-2"

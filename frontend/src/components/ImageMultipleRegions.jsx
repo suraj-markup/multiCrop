@@ -42,8 +42,23 @@ const ImageMultipleRegions = () => {
     // Original full size of the image (for coordinate math)
     const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
 
+    // NEW: Background upload state
+    const [backgroundUploads, setBackgroundUploads] = useState([]);
+    const [completedUploads, setCompletedUploads] = useState([]);
+
     const imageRef = useRef(null);
     const offscreenCanvasRef = useRef(document.createElement("canvas"));
+
+    // NEW: Auto-clear completed uploads after 5 seconds
+    useEffect(() => {
+        if (completedUploads.length > 0) {
+            const timer = setTimeout(() => {
+                setCompletedUploads([]);
+            }, 5000);
+            
+            return () => clearTimeout(timer);
+        }
+    }, [completedUploads]);
 
     const fetchQuestions = useCallback(async () => {
         if (!fileName) return;
@@ -657,9 +672,306 @@ const ImageMultipleRegions = () => {
         setHasUnsavedChanges(true);
     }, [isUploading, boxes]);
 
+    // NEW: Background upload function
+    const handleBackgroundUpload = useCallback(async (uploadFileName, uploadBoxes, uploadFilteredData, uploadModifiedQuestions, uploadImageSrc, uploadNaturalSize) => {
+        const uploadId = Date.now();
+        
+        // Add to background uploads
+        setBackgroundUploads(prev => [...prev, {
+            id: uploadId,
+            fileName: uploadFileName,
+            status: 'uploading',
+            progress: 0,
+            total: uploadFilteredData.filter(q => uploadModifiedQuestions.has(q.id)).length
+        }]);
+
+        try {
+            const rect = imageRef.current.getBoundingClientRect();
+            const displayW = rect.width;
+            const displayH = rect.height;
+            const scaleX = uploadNaturalSize.width / displayW;
+            const scaleY = uploadNaturalSize.height / displayH;
+
+            const boxCoordinates = uploadBoxes.map((b, index) => ({
+                name: b.name,
+                left: Math.round(b.x * scaleX),
+                top: Math.round(b.y * scaleY),
+                right: Math.round((b.x + b.width) * scaleX),
+                bottom: Math.round((b.y + b.height) * scaleY),
+                index,
+            }));
+
+            // Create a canvas to crop the images
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+            const img = new Image();
+            img.src = uploadImageSrc;
+
+            // Wait for the image to load
+            await new Promise((resolve) => {
+                img.onload = resolve;
+            });
+
+            // Upload each cropped image
+            const crops = [];
+            for (const box of boxCoordinates) {
+                canvas.width = box.right - box.left;
+                canvas.height = box.bottom - box.top;
+
+                ctx.drawImage(
+                    img,
+                    box.left,
+                    box.top,
+                    box.right - box.left,
+                    box.bottom - box.top,
+                    0,
+                    0,
+                    box.right - box.left,
+                    box.bottom - box.top
+                );
+
+                const blob = await new Promise((resolve) =>
+                    canvas.toBlob(resolve, "image/jpeg")
+                );
+
+                const croppedFile = new File([blob], `${box.name}`, {
+                    type: "image/jpeg",
+                });
+
+                const { error } = await supabase.storage
+                    .from("images")
+                    .upload(`${box.name}`, croppedFile, {
+                        cacheControl: "3600",
+                        upsert: true,
+                    });
+
+                if (error) {
+                    continue;
+                }
+
+                const {
+                    data: { publicUrl },
+                } = supabase.storage.from("images").getPublicUrl(`${box.name}`);
+                
+                crops.push({
+                    index: box.index,
+                    name: box.name,
+                    filename: `${box.name}`,
+                    url: publicUrl,
+                });
+            }
+
+            // Create a mapping from filename to URL for easy lookup
+            const filenameToUrlMap = {};
+            crops.forEach(crop => {
+                filenameToUrlMap[crop.name] = crop.url;
+            });
+
+            // Update filteredData with the actual Supabase URLs
+            const updatedQuestionsData = uploadFilteredData.map(question => {
+                if (!uploadModifiedQuestions.has(question.id)) {
+                    return question;
+                }
+
+                const updatedQuestion = { ...question };
+
+                if (updatedQuestion.question_image && filenameToUrlMap[updatedQuestion.question_image]) {
+                    updatedQuestion.question_image = filenameToUrlMap[updatedQuestion.question_image];
+                }
+
+                if (updatedQuestion.option_images && Array.isArray(updatedQuestion.option_images)) {
+                    updatedQuestion.option_images = updatedQuestion.option_images.map(optImg => {
+                        return filenameToUrlMap[optImg] || optImg;
+                    });
+                }
+
+                return updatedQuestion;
+            });
+
+            // Update questions in the backend - ONLY MODIFIED QUESTIONS
+            const questionsToUpdate = updatedQuestionsData.filter(q => uploadModifiedQuestions.has(q.id));
+
+            if (questionsToUpdate.length === 0) {
+                // Mark as completed
+                setBackgroundUploads(prev => prev.filter(u => u.id !== uploadId));
+                setCompletedUploads(prev => [...prev, {
+                    id: uploadId,
+                    fileName: uploadFileName,
+                    questionsUpdated: 0,
+                    cropsUploaded: crops.length
+                }]);
+                return;
+            }
+
+            for (let i = 0; i < questionsToUpdate.length; i++) {
+                const question = questionsToUpdate[i];
+                
+                // Update progress
+                setBackgroundUploads(prev => prev.map(u => 
+                    u.id === uploadId 
+                        ? { ...u, progress: i + 1 }
+                        : u
+                ));
+
+                try {
+                    const updateData = {
+                        question_number: question.question_number,
+                        file_name: question.file_name,
+                        question_text: question.question_text,
+                        isQuestionImage: question.isQuestionImage,
+                        question_image: question.isQuestionImage
+                            ? question.question_image
+                            : null,
+                        isOptionImage: question.isOptionImage,
+                        options: question.options?.map(opt =>
+                            typeof opt === 'object' ? opt.text : opt
+                        ) || [],
+                        option_images: question.isOptionImage ? question.option_images : [],
+                        section_name: question.section_name,
+                        question_type: question.question_type,
+                        topic: question.topic,
+                        exam_name: question.exam_name,
+                        subject: question.subject,
+                        chapter: question.chapter,
+                        answer: question.answer,
+                    };
+                    
+                    await axios.put(
+                        getQuestionByIdUrl(question.id),
+                        updateData,
+                        {
+                            headers: {
+                                "Content-Type": "application/json",
+                            },
+                        }
+                    );
+                } catch (error) {
+                    console.error(`Failed to update question ${question.id}:`, error.response?.data || error.message);
+                }
+            }
+
+            // Mark as completed
+            setBackgroundUploads(prev => prev.filter(u => u.id !== uploadId));
+            setCompletedUploads(prev => [...prev, {
+                id: uploadId,
+                fileName: uploadFileName,
+                questionsUpdated: questionsToUpdate.length,
+                cropsUploaded: crops.length
+            }]);
+
+        } catch (error) {
+            console.error(`Background upload failed for ${uploadFileName}:`, error.message);
+            // Mark as failed
+            setBackgroundUploads(prev => prev.map(u => 
+                u.id === uploadId 
+                    ? { ...u, status: 'failed' }
+                    : u
+            ));
+        }
+    }, []);
+
+    // NEW: Save and Next handler
+    const handleSaveAndNext = useCallback(() => {
+        if (!file) {
+            // If no file, just move to next image
+            handleNextImage();
+            return;
+        }
+
+        // Check if there are any modifications to upload
+        const hasModifications = modifiedQuestions.size > 0;
+        
+        if (!hasModifications) {
+            // No modifications to save, just move to next image
+            handleNextImage();
+            return;
+        }
+
+        // Start background upload with current state (NO AWAIT - runs in background)
+        handleBackgroundUpload(
+            fileName,
+            [...boxes], // Copy current boxes (can be empty array)
+            [...filteredData], // Copy current filtered data
+            new Set([...modifiedQuestions]), // Copy modified questions set
+            imageSrc,
+            { ...naturalSize }
+        );
+
+        // Immediately move to next image (doesn't wait for upload)
+        handleNextImage();
+    }, [file, boxes, fileName, filteredData, modifiedQuestions, imageSrc, naturalSize, handleBackgroundUpload, handleNextImage]);
+
     return (
         <>
             <div className="min-h-screen bg-gray-100">
+                {/* Background Upload Progress Indicator - Top Left */}
+                {(backgroundUploads.length > 0 || completedUploads.length > 0) && (
+                    <div className="fixed top-4 left-4 z-50 space-y-2">
+                        {/* Header with Clear All button for completed uploads */}
+                        {completedUploads.length > 0 && (
+                            <div className="bg-white rounded-lg shadow-lg p-2 flex items-center justify-between">
+                                <span className="text-xs text-gray-600 font-medium">
+                                    Upload Status ({backgroundUploads.length + completedUploads.length})
+                                </span>
+                                <button
+                                    onClick={() => setCompletedUploads([])}
+                                    className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100"
+                                >
+                                    Clear All
+                                </button>
+                            </div>
+                        )}
+                        
+                        {/* Active uploads */}
+                        {backgroundUploads.map((upload) => (
+                            <div key={upload.id} className="bg-white rounded-lg shadow-lg border-l-4 border-blue-500 p-3 min-w-64">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="text-sm font-medium text-gray-700">
+                                        📤 Uploading: {upload.fileName}
+                                    </div>
+                                    {upload.status === 'failed' && (
+                                        <div className="text-red-500 text-xs">❌ Failed</div>
+                                    )}
+                                </div>
+                                {upload.status !== 'failed' && (
+                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                        <div 
+                                            className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                                            style={{ width: `${(upload.progress / upload.total) * 100}%` }}
+                                        ></div>
+                                    </div>
+                                )}
+                                <div className="text-xs text-gray-500 mt-1">
+                                    {upload.status === 'failed' 
+                                        ? 'Upload failed'
+                                        : `${upload.progress}/${upload.total} questions`
+                                    }
+                                </div>
+                            </div>
+                        ))}
+                        
+                        {/* Completed uploads */}
+                        {completedUploads.map((completed) => (
+                            <div key={completed.id} className="bg-white rounded-lg shadow-lg border-l-4 border-green-500 p-3 min-w-64">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="text-sm font-medium text-gray-700">
+                                        ✅ Completed: {completed.fileName}
+                                    </div>
+                                    <button
+                                        onClick={() => setCompletedUploads(prev => prev.filter(c => c.id !== completed.id))}
+                                        className="text-gray-400 hover:text-gray-600 text-xs"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                    {completed.questionsUpdated} questions, {completed.cropsUploaded} images
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
                 {/* Navbar */}
                 <Navbar
                     fileName={fileName}
@@ -734,10 +1046,52 @@ const ImageMultipleRegions = () => {
                     >
                         ← Previous Image
                     </button>
-                    <div className="text-gray-600">
-                        Image {currentFileIndex + 1} of {files.length}
-                    </div>
-                    <button
+                    <div className="flex items-center gap-4">
+                        <div className="text-gray-600">
+                            Image {currentFileIndex + 1} of {files.length}
+                        </div>
+                        
+                        {/* Save and Next Button */}
+                        {files.length > 1 && currentFileIndex < files.length - 1 && (
+                            <button
+                                onClick={handleSaveAndNext}
+                                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow-sm transition-all font-medium flex items-center gap-2"
+                                disabled={isUploading}
+                            >
+                                💾➡️ Save & Next
+                                {hasUnsavedChanges && (
+                                    <span className="text-xs bg-yellow-400 text-gray-800 px-2 py-0.5 rounded-full">
+                                        •
+                                    </span>
+                                )}
+                            </button>
+                        )}
+                        
+                        {/* Save Button for Last Image */}
+                        {files.length > 1 && currentFileIndex === files.length - 1 && (
+                            <button
+                                onClick={handleUpload}
+                                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow-sm transition-all font-medium flex items-center gap-2"
+                                disabled={isUploading}
+                            >
+                                {isUploading ? (
+                                    <>
+                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        Saving...
+                                    </>
+                                ) : (
+                                    <>
+                                        💾 Save
+                                        {hasUnsavedChanges && (
+                                            <span className="text-xs bg-yellow-400 text-gray-800 px-2 py-0.5 rounded-full">
+                                                •
+                                            </span>
+                                        )}
+                                    </>
+                                )}
+                            </button>
+                        )}
+                        <button
                         onClick={handleNextImage}
                         disabled={currentFileIndex === files.length - 1}
                         className={`px-4 py-2 rounded-lg ${currentFileIndex === files.length - 1
@@ -747,6 +1101,8 @@ const ImageMultipleRegions = () => {
                     >
                         Next Image →
                     </button>
+                    </div>
+                    
                 </div>
             </div>
 
