@@ -156,7 +156,31 @@ const QuestionCard = ({
           <div className="mb-6">
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-sm font-semibold text-blue-600 uppercase tracking-wide flex items-center gap-2">
-                📷 Question Image
+                📷 Question Image{(() => {
+                  // Count local boxes + uploaded images
+                  const localBoxCount = questionBoxes.length;
+                  const uploadedUrls = question.question_image 
+                    ? (question.question_image.includes(',') 
+                        ? question.question_image.split(',').length 
+                        : 1)
+                    : 0;
+                  const totalCount = localBoxCount + uploadedUrls;
+                  return totalCount > 1 ? 's' : '';
+                })()}
+                {(() => {
+                  const localBoxCount = questionBoxes.length;
+                  const uploadedUrls = question.question_image 
+                    ? (question.question_image.includes(',') 
+                        ? question.question_image.split(',').length 
+                        : 1)
+                    : 0;
+                  const totalCount = localBoxCount + uploadedUrls;
+                  return totalCount > 0 && (
+                    <span className="bg-blue-500 text-white px-2 py-1 rounded-full text-xs">
+                      {totalCount}
+                    </span>
+                  );
+                })()}
               </h4>
               <div className="flex items-center gap-2">
                 <button
@@ -189,7 +213,7 @@ const QuestionCard = ({
                       handleDeleteBoxWithLoading(box.id);
                     }}
                     className="w-8 h-8 flex items-center justify-center rounded-full bg-red-100 hover:bg-red-500 disabled:bg-gray-200 disabled:cursor-not-allowed text-red-600 hover:text-white text-sm font-bold border border-red-300 transition-all"
-                    title="Delete bounding box"
+                    title={`Delete box: ${box.name}`}
                   >
                     🗑️
                   </button>
@@ -197,78 +221,185 @@ const QuestionCard = ({
               </div>
             </div>
 
-            {question.question_image ? (
-              <div className="bg-gray-50 rounded-lg p-4 border-2 border-dashed border-gray-300">
-                <div className="text-center">
-                  {(() => {
-                    // Debug logging for preview lookup
-                    const previewFromMap = previewMap[question.question_image];
-                    const questionBox = questionBoxes.find(b => b.name === question.question_image);
-                    const previewFromBox = questionBox?.preview;
-                    // Check for uploaded URL from box.finalUrl
-                    const uploadedUrl = questionBox?.finalUrl;
-                    const finalPreview = previewFromMap || previewFromBox || uploadedUrl;
-                    
-                    // Check if question_image is already a Supabase URL
-                    const isSupabaseUrl = question.question_image?.includes('supabase.co/storage');
-                    const imageUrl = isSupabaseUrl ? question.question_image : cleanImageUrl(question.question_image);
-                    
-                    // Only render image if we have a valid data URL preview OR uploaded URL OR Supabase URL
-                    if ((finalPreview && finalPreview.startsWith('data:image/')) || uploadedUrl || isSupabaseUrl) {
-                      return (
+            {questionBoxes.length > 0 ? (
+              <div className="space-y-4">
+                {/* Display all question boxes with their previews */}
+                {questionBoxes.map((box, index) => {
+                  const previewFromMap = previewMap[box.name];
+                  const previewFromBox = box.preview;
+                  const uploadedUrl = box.finalUrl;
+                  const isSupabaseUrl = box.name?.includes('supabase.co/storage');
+                  const imageUrl = isSupabaseUrl ? box.name : cleanImageUrl(box.name);
+                  const finalPreview = previewFromMap || previewFromBox || uploadedUrl || imageUrl;
+                  
+                  return (
+                    <div key={box.id} className="bg-gray-50 rounded-lg p-4 border-2 border-dashed border-gray-300">
+                      <div className="flex items-center justify-between mb-2">
+                        <h5 className="text-sm font-medium text-gray-700">
+                          Question Image {index + 1}
+                        </h5>
+                        <button
+                          disabled={isProcessing}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleDeleteBoxWithLoading(box.id);
+                          }}
+                          className="px-2 py-1 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded text-xs"
+                          title="Delete this box"
+                        >
+                          🗑️ Delete
+                        </button>
+                      </div>
+                      
+                      <div className="text-center">
+                        {finalPreview && (finalPreview.startsWith('data:image/') || uploadedUrl || isSupabaseUrl) ? (
+                          <img
+                            src={finalPreview}
+                            alt={`Question Image ${index + 1}`}
+                            className="max-w-full max-h-64 mx-auto rounded-lg border border-gray-200 shadow-sm"
+                            onError={(e) => {
+                              console.error("Failed to load image:", e.target.src);
+                              console.error("Box details:", {
+                                boxId: box.id,
+                                boxName: box.name,
+                                hasPreview: !!finalPreview,
+                                uploadedUrl: !!uploadedUrl
+                              });
+                              e.target.style.display = 'none';
+                              e.target.nextElementSibling.style.display = 'block';
+                            }}
+                            onLoad={(e) => {
+                              e.target.nextElementSibling.style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-full h-32 bg-blue-50 border border-blue-200 rounded flex items-center justify-center text-blue-500 text-sm">
+                            <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-2"></div>
+                            Generating preview...
+                          </div>
+                        )}
+                        <div 
+                          className="w-full h-32 bg-red-50 border border-red-200 rounded flex items-center justify-center text-red-500 text-sm"
+                          style={{ display: 'none' }}
+                        >
+                          ❌ Failed to load image
+                        </div>
+                      </div>
+                      <p className="text-center text-xs text-gray-400 mt-2">
+                        Box: {box.name}
+                      </p>
+                    </div>
+                  );
+                })}
+
+                {/* Display uploaded images from question_image field (comma-separated URLs) */}
+                {question.question_image && (() => {
+                  // Parse comma-separated URLs from question_image
+                  const uploadedUrls = question.question_image.includes(',') 
+                    ? question.question_image.split(',').map(url => url.trim())
+                    : [question.question_image];
+                  
+                  // Filter out URLs that already have corresponding boxes (to avoid duplicates)
+                  const urlsWithoutBoxes = uploadedUrls.filter(url => 
+                    !questionBoxes.some(box => 
+                      box.finalUrl === url || 
+                      box.name === url ||
+                      (box.name && url.includes(box.name))
+                    )
+                  );
+
+                  return urlsWithoutBoxes.length > 0 && (
+                    <div className="border-t border-gray-300 pt-4">
+                      <h5 className="text-sm font-medium text-gray-700 mb-3">
+                        📁 Previously Uploaded Images
+                      </h5>
+                      {urlsWithoutBoxes.map((url, index) => (
+                        <div key={`uploaded-${index}`} className="bg-blue-50 rounded-lg p-4 border-2 border-solid border-blue-200 mb-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <h6 className="text-sm font-medium text-blue-700">
+                              Uploaded Image {index + 1}
+                            </h6>
+                            <span className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded">
+                              Saved
+                            </span>
+                          </div>
+                          
+                          <div className="text-center">
+                            <img
+                              src={cleanImageUrl(url)}
+                              alt={`Uploaded Image ${index + 1}`}
+                              className="max-w-full max-h-64 mx-auto rounded-lg border border-blue-300 shadow-sm"
+                              onError={(e) => {
+                                console.error("Failed to load uploaded image:", e.target.src);
+                                e.target.style.display = 'none';
+                                e.target.nextElementSibling.style.display = 'block';
+                              }}
+                            />
+                            <div 
+                              className="w-full h-32 bg-red-50 border border-red-200 rounded flex items-center justify-center text-red-500 text-sm"
+                              style={{ display: 'none' }}
+                            >
+                              ❌ Failed to load uploaded image
+                            </div>
+                          </div>
+                          <p className="text-center text-xs text-blue-500 mt-2">
+                            URL: {url.length > 50 ? `${url.substring(0, 50)}...` : url}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : question.question_image ? (
+              // Show existing uploaded images when no local boxes exist
+              <div className="space-y-4">
+                {(() => {
+                  const uploadedUrls = question.question_image.includes(',') 
+                    ? question.question_image.split(',').map(url => url.trim())
+                    : [question.question_image];
+                  
+                  return uploadedUrls.map((url, index) => (
+                    <div key={`existing-${index}`} className="bg-blue-50 rounded-lg p-4 border-2 border-solid border-blue-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <h5 className="text-sm font-medium text-blue-700">
+                          Question Image {index + 1}
+                        </h5>
+                        <span className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded">
+                          Uploaded
+                        </span>
+                      </div>
+                      
+                      <div className="text-center">
                         <img
-                          src={finalPreview || uploadedUrl || imageUrl}
-                          alt="Question"
-                          className="max-w-full max-h-64 mx-auto rounded-lg border border-gray-200 shadow-sm"
+                          src={cleanImageUrl(url)}
+                          alt={`Question Image ${index + 1}`}
+                          className="max-w-full max-h-64 mx-auto rounded-lg border border-blue-300 shadow-sm"
                           onError={(e) => {
-                            console.error("Failed to load image:", e.target.src);
-                            console.error("Question image details:", {
-                              questionId: question.id,
-                              questionImage: question.question_image,
-                              isSupabaseUrl,
-                              hasQuestionBox: !!questionBox,
-                              finalPreview: !!finalPreview,
-                              uploadedUrl: !!uploadedUrl
-                            });
+                            console.error("Failed to load question image:", e.target.src);
                             e.target.style.display = 'none';
                             e.target.nextElementSibling.style.display = 'block';
                           }}
-                          onLoad={(e) => {
-                            e.target.nextElementSibling.style.display = 'none';
-                          }}
                         />
-                      );
-                    } else {
-                      // Show loading placeholder while preview is being generated
-                      return (
-                        <div className="w-full h-32 bg-blue-50 border border-blue-200 rounded flex items-center justify-center text-blue-500 text-sm">
-                          {questionBoxes.length > 0 ? (
-                            <>
-                              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-2"></div>
-                              Generating preview...
-                            </>
-                          ) : (
-                            <>📷 Add a bounding box to generate preview</>
-                          )}
+                        <div 
+                          className="w-full h-32 bg-red-50 border border-red-200 rounded flex items-center justify-center text-red-500 text-sm"
+                          style={{ display: 'none' }}
+                        >
+                          ❌ Failed to load image
                         </div>
-                      );
-                    }
-                  })()}
-                  <div 
-                    className="w-full h-32 bg-red-50 border border-red-200 rounded flex items-center justify-center text-red-500 text-sm"
-                    style={{ display: 'none' }}
-                  >
-                    ❌ Failed to load image
-                  </div>
-                </div>
-                <p className="text-center text-xs text-gray-400 mt-1">
-                  Image: {question.question_image}
-                </p>
+                      </div>
+                      <p className="text-center text-xs text-blue-500 mt-2">
+                        {url.length > 60 ? `${url.substring(0, 60)}...` : url}
+                      </p>
+                    </div>
+                  ));
+                })()}
               </div>
             ) : (
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
                 <p className="text-yellow-700 text-sm">
-                  ⚠️ No question image set. Add a bounding box to generate one.
+                  ⚠️ No question image boxes yet. Add a bounding box to generate previews.
                 </p>
               </div>
             )}

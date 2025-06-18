@@ -3,10 +3,7 @@ import PropTypes from "prop-types";
 const Navbar = ({ 
   fileName, 
   imageSrc, 
-  hasUnsavedChanges, 
-  isUploading, 
   onFileChange, 
-  onUpload, 
   onReset,
   file
 }) => {
@@ -47,28 +44,6 @@ const Navbar = ({
             {imageSrc && (
               <>
                 <div className="h-6 w-px bg-gray-300"></div>
-                
-                <button
-                  onClick={onUpload}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm transition-all font-medium flex items-center gap-2"
-                  disabled={!file || isUploading}
-                >
-                  {isUploading ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      Uploading...
-                    </>
-                  ) : (
-                    <>
-                      ⬆️ Upload Boxes
-                      {hasUnsavedChanges && (
-                        <span className="text-xs bg-yellow-400 text-gray-800 px-2 py-0.5 rounded-full">
-                          Unsaved changes
-                        </span>
-                      )}
-                    </>
-                  )}
-                </button>
                 <button
                   onClick={onReset}
                   className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-sm transition-all font-medium flex items-center gap-2"
@@ -87,10 +62,7 @@ const Navbar = ({
 Navbar.propTypes = {
   fileName: PropTypes.string,
   imageSrc: PropTypes.string,
-  hasUnsavedChanges: PropTypes.bool.isRequired,
-  isUploading: PropTypes.bool.isRequired,
   onFileChange: PropTypes.func.isRequired,
-  onUpload: PropTypes.func.isRequired,
   onReset: PropTypes.func.isRequired,
   file: PropTypes.object,
 };

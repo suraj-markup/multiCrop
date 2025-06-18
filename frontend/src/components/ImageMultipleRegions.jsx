@@ -167,32 +167,43 @@ const ImageMultipleRegions = () => {
 
             // Get current boxes from state to avoid stale closure
             setBoxes((currentBoxes) => {
-                const updatedBoxes = currentBoxes.map((box) => {
+                const updatedBoxes = currentBoxes.map((box, index) => {
                     const left = box.x * scaleX;
                     const top = box.y * scaleY;
                     const width = box.width * scaleX;
                     const height = box.height * scaleY;
 
-                    offscreen.width = width;
-                    offscreen.height = height;
-                    ctx.clearRect(0, 0, width, height);
-                    ctx.drawImage(
-                        previewImage,
-                        left,
-                        top,
-                        width,
-                        height,
-                        0,
-                        0,
-                        width,
-                        height
-                    );
+                    // Ensure minimum dimensions to avoid canvas errors
+                    const minWidth = Math.max(1, width);
+                    const minHeight = Math.max(1, height);
 
-                    const dataUrl = offscreen.toDataURL("image/png");
-                    if (box.name) {
-                        newPreviewMap[box.name] = dataUrl;
+                    offscreen.width = minWidth;
+                    offscreen.height = minHeight;
+                    ctx.clearRect(0, 0, minWidth, minHeight);
+                    
+                    try {
+                        ctx.drawImage(
+                            previewImage,
+                            left,
+                            top,
+                            width,
+                            height,
+                            0,
+                            0,
+                            minWidth,
+                            minHeight
+                        );
+
+                        const dataUrl = offscreen.toDataURL("image/png");
+                        
+                        if (box.name) {
+                            newPreviewMap[box.name] = dataUrl;
+                        }
+                        return { ...box, preview: dataUrl };
+                    } catch (error) {
+                        console.error(`Error generating preview for box ${index + 1}:`, error);
+                        return { ...box, preview: null };
                     }
-                    return { ...box, preview: dataUrl };
                 });
 
                 // Update preview map after boxes are processed
@@ -452,16 +463,69 @@ const ImageMultipleRegions = () => {
 
                 const updatedQuestion = { ...question };
 
-                // Update question_image with Supabase URL if it exists
-                if (updatedQuestion.question_image && filenameToUrlMap[updatedQuestion.question_image]) {
-                    updatedQuestion.question_image = filenameToUrlMap[updatedQuestion.question_image];
+                // Get all boxes for this question
+                const questionBoxes = boxes.filter(box => 
+                    box.questionId === question.id && box.type === "question"
+                );
+                
+                // Get all option boxes for this question
+                const optionBoxes = boxes.filter(box => 
+                    box.questionId === question.id && box.type === "option"
+                );
+
+                // Handle multiple question images
+                if (questionBoxes.length > 0) {
+                    const questionImageUrls = questionBoxes
+                        .map(box => filenameToUrlMap[box.name])
+                        .filter(url => url); // Remove undefined URLs
+                    
+                    if (questionImageUrls.length === 1) {
+                        // Single image - keep backward compatibility
+                        updatedQuestion.question_image = questionImageUrls[0];
+                    } else if (questionImageUrls.length > 1) {
+                        // Multiple images - store as comma-separated string in question_image field
+                        updatedQuestion.question_image = questionImageUrls.join(',');
+                    }
                 }
 
-                // Update option_images with Supabase URLs if they exist
-                if (updatedQuestion.option_images && Array.isArray(updatedQuestion.option_images)) {
-                    updatedQuestion.option_images = updatedQuestion.option_images.map(optImg => {
-                        return filenameToUrlMap[optImg] || optImg;
+                // Handle multiple option images
+                if (optionBoxes.length > 0) {
+                    const optionImagesMap = {};
+                    
+                    // Group option boxes by optionIndex
+                    optionBoxes.forEach(box => {
+                        if (!optionImagesMap[box.optionIndex]) {
+                            optionImagesMap[box.optionIndex] = [];
+                        }
+                        const url = filenameToUrlMap[box.name];
+                        if (url) {
+                            optionImagesMap[box.optionIndex].push(url);
+                        }
                     });
+
+                    // Create option_images array with multiple images per option
+                    const maxOptionIndex = Math.max(...Object.keys(optionImagesMap).map(Number));
+                    const newOptionImages = [];
+                    
+                    for (let i = 0; i <= maxOptionIndex; i++) {
+                        if (optionImagesMap[i] && optionImagesMap[i].length > 0) {
+                            if (optionImagesMap[i].length === 1) {
+                                // Single image - keep backward compatibility
+                                newOptionImages[i] = optionImagesMap[i][0];
+                            } else {
+                                // Multiple images - store first one for compatibility, 
+                                // but you might want to modify this based on backend support
+                                newOptionImages[i] = optionImagesMap[i][0]; // Primary image
+                                // You could add a separate field for multiple images:
+                                // newOptionImages[i] = optionImagesMap[i]; // All images as array
+                            }
+                        } else if (updatedQuestion.option_images && updatedQuestion.option_images[i]) {
+                            // Keep existing image if no new boxes for this option
+                            newOptionImages[i] = updatedQuestion.option_images[i];
+                        }
+                    }
+                    
+                    updatedQuestion.option_images = newOptionImages;
                 }
 
                 return updatedQuestion;
@@ -570,25 +634,33 @@ const ImageMultipleRegions = () => {
         // Prevent multiple rapid clicks
         if (isUploading) return;
 
+        // Count existing boxes for this question/option to create unique names
+        const existingBoxCount = boxes.filter(box => 
+            box.questionId === question.id && 
+            box.type === type && 
+            (type === "option" ? box.optionIndex === optionIndex : true)
+        ).length;
+
         let name = "";
         let updatedFilteredData = null;
 
         if (type === "question") {
-            if (question.question_image) {
-                name = question.question_image;
-            } else {
-                name = `${question.question_number}_${fileName}`;
+            // Create unique name for each box: questionNumber_boxIndex_fileName_timestamp
+            name = `${question.question_number}_q${existingBoxCount + 1}_${fileName}_${Date.now()}`;
+            
+            // For first box, set question_image; for additional boxes, we'll handle them separately
+            if (existingBoxCount === 0 && !question.question_image) {
                 updatedFilteredData = (prevQ) =>
                     prevQ.map((q) =>
                         q.id === question.id ? { ...q, question_image: name } : q
                     );
             }
         } else if (type === "option" && optionIndex !== null) {
-            if (question.option_images && question.option_images[optionIndex]) {
-                name = question.option_images[optionIndex];
-            } else {
-                name = `${question.question_number}_option${optionIndex + 1
-                    }_${fileName}`;
+            // Create unique name for each option box: questionNumber_optionIndex_boxIndex_fileName_timestamp
+            name = `${question.question_number}_opt${optionIndex + 1}_box${existingBoxCount + 1}_${fileName}_${Date.now()}`;
+            
+            // For first box of this option, set option_images; for additional boxes, we'll handle them separately
+            if (existingBoxCount === 0) {
                 updatedFilteredData = (prevQ) =>
                     prevQ.map((q) => {
                         if (q.id === question.id) {
@@ -604,8 +676,8 @@ const ImageMultipleRegions = () => {
         // Create new box object
         const newBox = {
             id: Date.now() + Math.random(),
-            x: 50,
-            y: 50,
+            x: 50 + (existingBoxCount * 20), // Offset new boxes slightly
+            y: 50 + (existingBoxCount * 20),
             width: 100,
             height: 100,
             name,
@@ -613,6 +685,7 @@ const ImageMultipleRegions = () => {
             questionId: question.id,
             optionIndex: type === "option" ? optionIndex : null,
             type, // 'question' or 'option'
+            boxIndex: existingBoxCount, // Track which box this is for the question/option
         };
 
         // Batch all state updates together
@@ -625,8 +698,8 @@ const ImageMultipleRegions = () => {
         setModifiedQuestions((prev) => new Set([...prev, question.id]));
 
         // Force re-render for existing question images by updating filtered data timestamp
-        if (type === "question" && question.question_image) {
-            // For existing question images, force a minimal state update to trigger re-render
+        if (type === "question") {
+            // For question images, force a minimal state update to trigger re-render
             setFilteredData((prev) =>
                 prev.map((q) =>
                     q.id === question.id
@@ -640,7 +713,7 @@ const ImageMultipleRegions = () => {
         setTimeout(() => {
             generateLocalPreviews();
         }, 50);
-    }, [fileName, isUploading, generateLocalPreviews]);
+    }, [fileName, isUploading, generateLocalPreviews, boxes]);
 
     // Handler to delete boxes - OPTIMIZED
     const handleDeleteBox = useCallback((boxId, questionId = null, type = null, optionIndex = null) => {
@@ -775,14 +848,69 @@ const ImageMultipleRegions = () => {
 
                 const updatedQuestion = { ...question };
 
-                if (updatedQuestion.question_image && filenameToUrlMap[updatedQuestion.question_image]) {
-                    updatedQuestion.question_image = filenameToUrlMap[updatedQuestion.question_image];
+                // Get all boxes for this question
+                const questionBoxes = uploadBoxes.filter(box => 
+                    box.questionId === question.id && box.type === "question"
+                );
+                
+                // Get all option boxes for this question
+                const optionBoxes = uploadBoxes.filter(box => 
+                    box.questionId === question.id && box.type === "option"
+                );
+
+                // Handle multiple question images
+                if (questionBoxes.length > 0) {
+                    const questionImageUrls = questionBoxes
+                        .map(box => filenameToUrlMap[box.name])
+                        .filter(url => url); // Remove undefined URLs
+                    
+                    if (questionImageUrls.length === 1) {
+                        // Single image - keep backward compatibility
+                        updatedQuestion.question_image = questionImageUrls[0];
+                    } else if (questionImageUrls.length > 1) {
+                        // Multiple images - store as comma-separated string in question_image field
+                        updatedQuestion.question_image = questionImageUrls.join(',');
+                    }
                 }
 
-                if (updatedQuestion.option_images && Array.isArray(updatedQuestion.option_images)) {
-                    updatedQuestion.option_images = updatedQuestion.option_images.map(optImg => {
-                        return filenameToUrlMap[optImg] || optImg;
+                // Handle multiple option images
+                if (optionBoxes.length > 0) {
+                    const optionImagesMap = {};
+                    
+                    // Group option boxes by optionIndex
+                    optionBoxes.forEach(box => {
+                        if (!optionImagesMap[box.optionIndex]) {
+                            optionImagesMap[box.optionIndex] = [];
+                        }
+                        const url = filenameToUrlMap[box.name];
+                        if (url) {
+                            optionImagesMap[box.optionIndex].push(url);
+                        }
                     });
+
+                    // Create option_images array with multiple images per option
+                    const maxOptionIndex = Math.max(...Object.keys(optionImagesMap).map(Number));
+                    const newOptionImages = [];
+                    
+                    for (let i = 0; i <= maxOptionIndex; i++) {
+                        if (optionImagesMap[i] && optionImagesMap[i].length > 0) {
+                            if (optionImagesMap[i].length === 1) {
+                                // Single image - keep backward compatibility
+                                newOptionImages[i] = optionImagesMap[i][0];
+                            } else {
+                                // Multiple images - store first one for compatibility, 
+                                // but you might want to modify this based on backend support
+                                newOptionImages[i] = optionImagesMap[i][0]; // Primary image
+                                // You could add a separate field for multiple images:
+                                // newOptionImages[i] = optionImagesMap[i]; // All images as array
+                            }
+                        } else if (updatedQuestion.option_images && updatedQuestion.option_images[i]) {
+                            // Keep existing image if no new boxes for this option
+                            newOptionImages[i] = updatedQuestion.option_images[i];
+                        }
+                    }
+                    
+                    updatedQuestion.option_images = newOptionImages;
                 }
 
                 return updatedQuestion;
@@ -904,9 +1032,9 @@ const ImageMultipleRegions = () => {
     return (
         <>
             <div className="min-h-screen bg-gray-100">
-                {/* Background Upload Progress Indicator - Top Left */}
+                {/* Background Upload Progress Indicator - Top Right */}
                 {(backgroundUploads.length > 0 || completedUploads.length > 0) && (
-                    <div className="fixed top-4 left-4 z-50 space-y-2">
+                    <div className="fixed top-4 right-4 z-1000 space-y-2">
                         {/* Header with Clear All button for completed uploads */}
                         {completedUploads.length > 0 && (
                             <div className="bg-white rounded-lg shadow-lg p-2 flex items-center justify-between">
@@ -1050,7 +1178,16 @@ const ImageMultipleRegions = () => {
                         <div className="text-gray-600">
                             Image {currentFileIndex + 1} of {files.length}
                         </div>
-                        
+                        <button
+                        onClick={handleNextImage}
+                        disabled={currentFileIndex === files.length - 1}
+                        className={`px-4 py-2 rounded-lg ${currentFileIndex === files.length - 1
+                                ? 'bg-gray-300 cursor-not-allowed'
+                                : 'bg-blue-500 hover:bg-blue-600 text-white'
+                            }`}
+                    >
+                        Next Image →
+                    </button>
                         {/* Save and Next Button */}
                         {files.length > 1 && currentFileIndex < files.length - 1 && (
                             <button
@@ -1068,6 +1205,8 @@ const ImageMultipleRegions = () => {
                         )}
                         
                         {/* Save Button for Last Image */}
+                        
+
                         {files.length > 1 && currentFileIndex === files.length - 1 && (
                             <button
                                 onClick={handleUpload}
@@ -1091,16 +1230,7 @@ const ImageMultipleRegions = () => {
                                 )}
                             </button>
                         )}
-                        <button
-                        onClick={handleNextImage}
-                        disabled={currentFileIndex === files.length - 1}
-                        className={`px-4 py-2 rounded-lg ${currentFileIndex === files.length - 1
-                                ? 'bg-gray-300 cursor-not-allowed'
-                                : 'bg-blue-500 hover:bg-blue-600 text-white'
-                            }`}
-                    >
-                        Next Image →
-                    </button>
+                        
                     </div>
                     
                 </div>
