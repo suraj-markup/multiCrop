@@ -25,6 +25,18 @@ const cleanImageUrl = (url) => {
   return url;
 };
 
+// Helper function to check if a string is a valid URL
+const isValidUrl = (string) => {
+  try {
+    new URL(string);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+
+
 const QuestionCard = ({ 
   question, 
   boxes, 
@@ -300,67 +312,24 @@ const QuestionCard = ({
                     ? question.question_image.split(',').map(url => url.trim())
                     : [question.question_image];
                   
-                  // Filter out URLs that already have corresponding boxes (to avoid duplicates)
-                  const urlsWithoutBoxes = uploadedUrls.filter(url => 
-                    !questionBoxes.some(box => 
-                      box.finalUrl === url || 
-                      box.name === url ||
-                      (box.name && url.includes(box.name))
-                    )
-                  );
-
-                  return urlsWithoutBoxes.length > 0 && (
-                    <div className="border-t border-gray-300 pt-4">
-                      <h5 className="text-sm font-medium text-gray-700 mb-3">
-                        📁 Previously Uploaded Images
-                      </h5>
-                      {urlsWithoutBoxes.map((url, index) => (
-                        <div key={`uploaded-${index}`} className="bg-blue-50 rounded-lg p-4 border-2 border-solid border-blue-200 mb-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <h6 className="text-sm font-medium text-blue-700">
-                              Uploaded Image {index + 1}
-                            </h6>
-                            <span className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded">
-                              Saved
-                            </span>
-                          </div>
-                          
-                          <div className="text-center">
-                            <img
-                              src={cleanImageUrl(url)}
-                              alt={`Uploaded Image ${index + 1}`}
-                              className="max-w-full max-h-64 mx-auto rounded-lg border border-blue-300 shadow-sm"
-                              onError={(e) => {
-                                console.error("Failed to load uploaded image:", e.target.src);
-                                e.target.style.display = 'none';
-                                e.target.nextElementSibling.style.display = 'block';
-                              }}
-                            />
-                            <div 
-                              className="w-full h-32 bg-red-50 border border-red-200 rounded flex items-center justify-center text-red-500 text-sm"
-                              style={{ display: 'none' }}
-                            >
-                              ❌ Failed to load uploaded image
-                            </div>
-                          </div>
-                          <p className="text-center text-xs text-blue-500 mt-2">
-                            URL: {url.length > 50 ? `${url.substring(0, 50)}...` : url}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-            ) : question.question_image ? (
-              // Show existing uploaded images when no local boxes exist
-              <div className="space-y-4">
-                {(() => {
-                  const uploadedUrls = question.question_image.includes(',') 
-                    ? question.question_image.split(',').map(url => url.trim())
-                    : [question.question_image];
+                  // Filter to only include valid URLs (not filenames)
+                  const validUrls = uploadedUrls
+                    .filter(url => isValidUrl(url)) // Only include actual URLs
+                    .map(url => cleanImageUrl(url)) // Clean the URL
+                    .filter(Boolean); // Remove any null/undefined entries
                   
-                  return uploadedUrls.map((url, index) => (
+                  // If no valid URLs found, show a message
+                  if (validUrls.length === 0) {
+                    return (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
+                        <p className="text-yellow-700 text-sm">
+                          ⚠️ Question image field contains filenames only. Add new bounding boxes to upload images.
+                        </p>
+                      </div>
+                    );
+                  }
+                  
+                  return validUrls.map((url, index) => (
                     <div key={`existing-${index}`} className="bg-blue-50 rounded-lg p-4 border-2 border-solid border-blue-200">
                       <div className="flex items-center justify-between mb-2">
                         <h5 className="text-sm font-medium text-blue-700">
@@ -373,7 +342,68 @@ const QuestionCard = ({
                       
                       <div className="text-center">
                         <img
-                          src={cleanImageUrl(url)}
+                          src={url}
+                          alt={`Question Image ${index + 1}`}
+                          className="max-w-full max-h-64 mx-auto rounded-lg border border-blue-300 shadow-sm"
+                          onError={(e) => {
+                            console.error("Failed to load question image:", e.target.src);
+                            e.target.style.display = 'none';
+                            e.target.nextElementSibling.style.display = 'block';
+                          }}
+                        />
+                        <div 
+                          className="w-full h-32 bg-red-50 border border-red-200 rounded flex items-center justify-center text-red-500 text-sm"
+                          style={{ display: 'none' }}
+                        >
+                          ❌ Failed to load image
+                        </div>
+                      </div>
+                      <p className="text-center text-xs text-blue-500 mt-2">
+                        {url.length > 60 ? `${url.substring(0, 60)}...` : url}
+                      </p>
+                    </div>
+                  ));
+                })()}
+              </div>
+            ) : question.question_image ? (
+              // Show existing uploaded images when no local boxes exist
+              <div className="space-y-4">
+                {(() => {
+                  const uploadedUrls = question.question_image.includes(',') 
+                    ? question.question_image.split(',').map(url => url.trim())
+                    : [question.question_image];
+                  
+                  // Filter to only include valid URLs (not filenames)
+                  const validUrls = uploadedUrls
+                    .filter(url => isValidUrl(url)) // Only include actual URLs
+                    .map(url => cleanImageUrl(url)) // Clean the URL
+                    .filter(Boolean); // Remove any null/undefined entries
+                  
+                  // If no valid URLs found, show a message
+                  if (validUrls.length === 0) {
+                    return (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
+                        <p className="text-yellow-700 text-sm">
+                          ⚠️ Question image field contains filenames only. Add new bounding boxes to upload images.
+                        </p>
+                      </div>
+                    );
+                  }
+                  
+                  return validUrls.map((url, index) => (
+                    <div key={`existing-${index}`} className="bg-blue-50 rounded-lg p-4 border-2 border-solid border-blue-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <h5 className="text-sm font-medium text-blue-700">
+                          Question Image {index + 1}
+                        </h5>
+                        <span className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded">
+                          Uploaded
+                        </span>
+                      </div>
+                      
+                      <div className="text-center">
+                        <img
+                          src={url}
                           alt={`Question Image ${index + 1}`}
                           className="max-w-full max-h-64 mx-auto rounded-lg border border-blue-300 shadow-sm"
                           onError={(e) => {
